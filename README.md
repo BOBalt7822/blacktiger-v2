@@ -114,8 +114,8 @@ All tools are accessible through an elegant terminal-based menu system with anim
 ###  Install
 
 ```bash
-git clone https://github.com/BOB7822/BLACKTIGER-V2.git
-cd BLACKTIGER-V2
+git clone https://github.com/BOBalt7822/blacktiger-v2.git
+cd blacktiger-v2
 pip3 install -r requirements.txt
 python3 main_menu.py
 ```
