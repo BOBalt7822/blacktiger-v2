@@ -35,33 +35,32 @@ def run():
     print("-"*60)
     
     try:
-        r = requests.get(f"http://ip-api.com/json/{ip}?fields=status,country,regionName,city,zip,lat,lon,timezone,isp,org,as,query", timeout=8)
+        r = requests.get(f"https://ipinfo.io/{ip}/json", timeout=8)
         
         if r.status_code == 200:
             data = r.json()
             
-            if data.get('status') == 'fail':
-                print("Geolocation failed. Invalid IP or rate limited.")
-                print(f"Message: {data.get('message', 'Unknown error')}")
+            if 'error' in data:
+                print(f"Error: {data['error']}")
                 input("\nPress Enter to continue...")
                 return
             
-            print(f"IP Address:    {data.get('query', ip)}")
+            print(f"IP Address:    {data.get('ip', ip)}")
             print(f"Country:       {data.get('country', 'Unknown')}")
-            print(f"Region:        {data.get('regionName', 'Unknown')}")
+            print(f"Region:        {data.get('region', 'Unknown')}")
             print(f"City:          {data.get('city', 'Unknown')}")
-            print(f"Postal Code:   {data.get('zip', 'Unknown')}")
-            print(f"Latitude:      {data.get('lat', 'Unknown')}")
-            print(f"Longitude:     {data.get('lon', 'Unknown')}")
-            print(f"Timezone:      {data.get('timezone', 'Unknown')}")
-            print(f"ISP:           {data.get('isp', 'Unknown')}")
-            print(f"Organization:  {data.get('org', 'Unknown')}")
-            print(f"AS Number:     {data.get('as', 'Unknown')}")
+            print(f"Postal Code:   {data.get('postal', 'Unknown')}")
             
-            lat = data.get('lat')
-            lon = data.get('lon')
-            if lat and lon:
+            loc = data.get('loc', '')
+            if loc:
+                lat, lon = loc.split(',')
+                print(f"Latitude:      {lat}")
+                print(f"Longitude:     {lon}")
                 print(f"Google Maps:   https://maps.google.com/maps?q={lat},{lon}")
+            
+            print(f"Timezone:      {data.get('timezone', 'Unknown')}")
+            print(f"ISP:           {data.get('org', 'Unknown')}")
+            
         else:
             print(f"HTTP Error: {r.status_code}")
             
