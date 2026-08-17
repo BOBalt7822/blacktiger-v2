@@ -3,8 +3,13 @@
 
 import requests
 import json
+import os
+
+def clear_screen():
+    os.system('clear' if os.name == 'posix' else 'cls')
 
 def run():
+    clear_screen()
     print("\n" + "="*60)
     print("IP GEOLOCATION")
     print("="*60)
@@ -18,10 +23,12 @@ def run():
             print(f"Your IP: {ip}")
         except Exception as e:
             print(f"Could not get your IP: {e}")
+            input("\nPress Enter to continue...")
             return
     
     if not ip:
         print("No IP entered.")
+        input("\nPress Enter to continue...")
         return
     
     print(f"\nLooking up: {ip}")
@@ -36,6 +43,7 @@ def run():
             if data.get('status') == 'fail':
                 print("Geolocation failed. Invalid IP or rate limited.")
                 print(f"Message: {data.get('message', 'Unknown error')}")
+                input("\nPress Enter to continue...")
                 return
             
             print(f"IP Address:    {data.get('query', ip)}")
@@ -65,6 +73,7 @@ def run():
         print(f"Error: {e}")
     
     print("-"*60)
+    input("\nPress Enter to continue...")
 
 if __name__ == "__main__":
     run()
