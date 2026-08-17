@@ -1,17 +1,40 @@
 #!/usr/bin/env python3
-# IP Geolocation Module
-
+# IP Geolocation Module 
 import requests
 import json
 import os
+import time
 
 def clear_screen():
     os.system('clear' if os.name == 'posix' else 'cls')
 
+def get_ip_location(ip):
+    results = {}
+    
+    try:
+        r = requests.get(f"https://ipinfo.io/{ip}/json", timeout=8)
+        if r.status_code == 200:
+            data = r.json()
+            if 'error' not in data:
+                results['ipinfo'] = data
+    except:
+        pass
+    
+    try:
+        r = requests.get(f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,mobile,proxy,hosting,query", timeout=8)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get('status') != 'fail':
+                results['ipapi'] = data
+    except:
+        pass
+    
+    return results
+
 def run():
     clear_screen()
     print("\n" + "="*60)
-    print("IP GEOLOCATION")
+    print("IP GEOLOCATION - MOST ACCURATE")
     print("="*60)
     
     ip = input("IP address (or 'me' for your IP): ").strip()
@@ -34,42 +57,57 @@ def run():
     print(f"\nLooking up: {ip}")
     print("-"*60)
     
-    try:
-        r = requests.get(f"https://ipinfo.io/{ip}/json", timeout=8)
-        
-        if r.status_code == 200:
-            data = r.json()
-            
-            if 'error' in data:
-                print(f"Error: {data['error']}")
-                input("\nPress Enter to continue...")
-                return
-            
-            print(f"IP Address:    {data.get('ip', ip)}")
-            print(f"Country:       {data.get('country', 'Unknown')}")
-            print(f"Region:        {data.get('region', 'Unknown')}")
-            print(f"City:          {data.get('city', 'Unknown')}")
-            print(f"Postal Code:   {data.get('postal', 'Unknown')}")
-            
-            loc = data.get('loc', '')
-            if loc:
-                lat, lon = loc.split(',')
-                print(f"Latitude:      {lat}")
-                print(f"Longitude:     {lon}")
-                print(f"Google Maps:   https://maps.google.com/maps?q={lat},{lon}")
-            
-            print(f"Timezone:      {data.get('timezone', 'Unknown')}")
-            print(f"ISP:           {data.get('org', 'Unknown')}")
-            
-        else:
-            print(f"HTTP Error: {r.status_code}")
-            
-    except requests.exceptions.ConnectionError:
-        print("Connection error. Check your internet.")
-    except requests.exceptions.Timeout:
-        print("Request timed out. Try again.")
-    except Exception as e:
-        print(f"Error: {e}")
+    results = get_ip_location(ip)
+    
+    if not results:
+        print("Could not get location data. Check your internet.")
+        input("\nPress Enter to continue...")
+        return
+    
+    ipinfo = results.get('ipinfo', {})
+    ipapi = results.get('ipapi', {})
+    
+    country = ipinfo.get('country', ipapi.get('country', 'Unknown'))
+    country_code = ipinfo.get('country', ipapi.get('countryCode', ''))
+    region = ipinfo.get('region', ipapi.get('regionName', 'Unknown'))
+    city = ipinfo.get('city', ipapi.get('city', 'Unknown'))
+    postal = ipinfo.get('postal', ipapi.get('zip', 'Unknown'))
+    timezone = ipinfo.get('timezone', ipapi.get('timezone', 'Unknown'))
+    isp = ipinfo.get('org', ipapi.get('isp', 'Unknown'))
+    
+    loc = ipinfo.get('loc', '')
+    if loc:
+        lat, lon = loc.split(',')
+    else:
+        lat = ipapi.get('lat', 'Unknown')
+        lon = ipapi.get('lon', 'Unknown')
+    
+    print(f"IP Address:    {ip}")
+    print(f"Country:       {country}")
+    print(f"Region:        {region}")
+    print(f"City:          {city}")
+    print(f"Postal Code:   {postal}")
+    print(f"Latitude:      {lat}")
+    print(f"Longitude:     {lon}")
+    
+    if lat and lon and lat != 'Unknown' and lon != 'Unknown':
+        print(f"Google Maps:   https://maps.google.com/maps?q={lat},{lon}")
+        print(f"OpenStreetMap: https://www.openstreetmap.org/?mlat={lat}&mlon={lon}&zoom=12")
+    
+    print(f"Timezone:      {timezone}")
+    print(f"ISP:           {isp}")
+    
+    if ipapi.get('mobile'):
+        print("Mobile/Proxy:  Mobile connection")
+    if ipapi.get('proxy'):
+        print("Mobile/Proxy:  Proxy/VPN detected")
+    
+    org = ipinfo.get('org', '')
+    if org and org != isp:
+        print(f"Organization:  {org}")
+    
+    if 'as' in ipapi:
+        print(f"AS Number:     {ipapi.get('as', 'Unknown')}")
     
     print("-"*60)
     input("\nPress Enter to continue...")
