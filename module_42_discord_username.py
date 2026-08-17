@@ -12,7 +12,7 @@ RESET = "\033[0m"
 
 def run():
     print("\n" + "="*60)
-    print("DISCORD 4-LETTER USERNAME CHECKER - LIGHTNING SPEED")
+    print("DISCORD 4-LETTER USERNAME CHECKER ")
     print("="*60)
     
     print("[1] Generate and check 4-letter usernames")
