@@ -1,22 +1,17 @@
 #!/usr/bin/env python3
-
+# email_tracker.py
 
 import asyncio
 import sys
 import time
 import re
-import random
 import aiohttp
-from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 
 try:
     import holehe
 except ImportError:
-    print("\n[!] Holehe is required. Install it with:")
-    print("    pip install holehe")
-    print("\n[!] If you get errors, also install:")
-    print("    pip install aiohttp beautifulsoup4")
+    print("\n[!] Install: pip install holehe aiohttp beautifulsoup4")
     sys.exit(1)
 
 TARGET_MODULES = [
@@ -34,7 +29,6 @@ PROXY_SOURCES = [
     "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
     "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
     "https://www.proxy-list.download/api/v1/get?type=http",
-    "https://raw.githubusercontent.com/mertguvencli/http-proxy-list/main/proxy-list/data.json",
 ]
 
 class ProxyScraper:
@@ -227,7 +221,7 @@ class EmailTracker:
 
 async def main_async():
     print("\n" + "="*60)
-    print("EMAIL TRACKER - 7 Platforms with Proxy Support")
+    print("EMAIL TRACKER")
     print("="*60)
     print("Facebook, TikTok, Discord, Spotify, Snapchat, GitHub, Instagram")
     print("Type 'exit' or 'quit' to stop.\n")
