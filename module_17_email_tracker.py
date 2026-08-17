@@ -11,7 +11,7 @@ from typing import Dict, List, Tuple, Optional
 try:
     import holehe
 except ImportError:
-    print("\n[!] Install: pip install holehe aiohttp beautifulsoup4 --break-system-packages")
+    print("\n[!] Install: pip install holehe aiohttp beautifulsoup4
     sys.exit(1)
 
 TARGET_MODULES = [
