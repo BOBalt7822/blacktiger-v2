@@ -2,7 +2,7 @@
 # Discord 4-Letter Username Checker 
 # Made by BOB
 
-import requests, random, string, time, sys, os, json, threading
+import requests, random, string, time, sys, os, json, threading, queue
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -12,7 +12,7 @@ RESET = "\033[0m"
 
 def run():
     print("\n" + "="*60)
-    print("DISCORD 4-LETTER USERNAME CHECKER")
+    print("DISCORD 4-LETTER USERNAME CHECKER - LIGHTNING SPEED")
     print("="*60)
     
     print("[1] Generate and check 4-letter usernames")
@@ -22,22 +22,20 @@ def run():
     choice = input("\nSelect option: ").strip()
     
     if choice == '1':
-        generate_fast()
+        generate_lightning()
     elif choice == '2':
         check_specific()
     else:
         return
 
-def check_username(username, proxy=None):
+def check_username(username, proxy=None, session=None):
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/json',
-        }
-        if proxy:
-            r = requests.get(f"https://discord.com/api/v9/users/{username}", headers=headers, timeout=2, proxies=proxy)
+        if session:
+            r = session.get(f"https://discord.com/api/v9/users/{username}", timeout=1)
+        elif proxy:
+            r = requests.get(f"https://discord.com/api/v9/users/{username}", timeout=1, proxies=proxy)
         else:
-            r = requests.get(f"https://discord.com/api/v9/users/{username}", headers=headers, timeout=2)
+            r = requests.get(f"https://discord.com/api/v9/users/{username}", timeout=1)
         
         if r.status_code == 200:
             return "TAKEN"
@@ -76,54 +74,63 @@ def scrape_proxies():
     
     for src in sources:
         try:
-            r = requests.get(src, timeout=10)
+            r = requests.get(src, timeout=5)
             if r.status_code == 200:
                 for line in r.text.split('\n'):
                     if ':' in line and '.' in line:
                         proxy = line.strip()
                         if proxy and not proxy.startswith('#'):
-                            proxies.append({'http': proxy, 'https': proxy})
-            time.sleep(0.5)
+                            proxies.append(proxy)
         except:
             pass
     
-    unique = []
-    seen = set()
-    for p in proxies:
-        if p['http'] not in seen:
-            seen.add(p['http'])
-            unique.append(p)
-    
-    return unique
+    return list(set(proxies))
 
-def generate_fast():
+def generate_lightning():
     print("\n" + "="*60)
-    print("USERNAME CHECKER")
+    print("LIGHTNING SPEED CHECKER")
     print("="*60)
     
-    count = int(input("Number of usernames [1000]: ").strip() or "1000")
-    threads = int(input("Threads [50]: ").strip() or "50")
-    
+    count = int(input("Number of usernames [5000]: ").strip() or "5000")
     webhook = input("Webhook URL (optional): ").strip()
     
-    print("\n[+] Scraping proxies...")
+    print("\n[+] Loading proxies...")
     proxies = scrape_proxies()
     print(f"[+] {len(proxies)} proxies loaded")
     
-    print(f"\n[+] Checking {count} usernames...\n")
+    print(f"\n[+] Checking {count} usernames at 2000+/sec...\n")
     
     available = []
-    checked = 0
-    lock = threading.Lock()
     chars = string.ascii_lowercase + string.digits
+    usernames = [''.join(random.choices(chars, k=4)) for _ in range(count)]
+    
+    results = []
+    lock = threading.Lock()
+    
+    # Create sessions for each thread
+    def create_session():
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+        })
+        return session
     
     def worker(username):
-        nonlocal checked
         proxy = random.choice(proxies) if proxies else None
-        status = check_username(username, proxy)
-        
-        with lock:
-            checked += 1
+        session = create_session()
+        status = check_username(username, proxy, session)
+        return username, status
+    
+    start = time.time()
+    
+    # Use more threads for faster processing
+    with ThreadPoolExecutor(max_workers=200) as executor:
+        futures = [executor.submit(worker, username) for username in usernames]
+        for future in as_completed(futures):
+            username, status = future.result()
             if status == "AVAILABLE":
                 print(f"{GREEN}{username}{RESET}")
                 available.append(username)
@@ -132,17 +139,11 @@ def generate_fast():
             else:
                 print(f"{RED}{username}{RESET}")
     
-    usernames = [''.join(random.choices(chars, k=4)) for _ in range(count)]
-    
-    start = time.time()
-    
-    with ThreadPoolExecutor(max_workers=threads) as executor:
-        executor.map(worker, usernames)
-    
     elapsed = time.time() - start
     
     print("\n" + "="*60)
     print(f"Checked: {count}")
+    print(f"Time: {elapsed:.2f}s")
     print(f"Speed: {count/elapsed:.0f}/s")
     print(f"{GREEN}Available: {len(available)}{RESET}")
     
