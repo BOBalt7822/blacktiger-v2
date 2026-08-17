@@ -1,244 +1,283 @@
 #!/usr/bin/env python3
-# Email Tracker Module
 
-import re, requests, json, dns.resolver, socket, time, sys
 
-def run():
-    print("\n" + "="*60)
-    print("EMAIL TRACKER")
-    print("="*60)
+import asyncio
+import sys
+import time
+import re
+import random
+import aiohttp
+from datetime import datetime
+from typing import Dict, List, Tuple, Optional
+
+try:
+    import holehe
+except ImportError:
+    print("\n[!] Holehe is required. Install it with:")
+    print("    pip install holehe")
+    print("\n[!] If you get errors, also install:")
+    print("    pip install aiohttp beautifulsoup4")
+    sys.exit(1)
+
+TARGET_MODULES = [
+    'facebook',
+    'tiktok',
+    'discord',
+    'spotify',
+    'snapchat',
+    'github',
+    'instagram'
+]
+
+PROXY_SOURCES = [
+    "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
+    "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+    "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
+    "https://www.proxy-list.download/api/v1/get?type=http",
+    "https://raw.githubusercontent.com/mertguvencli/http-proxy-list/main/proxy-list/data.json",
+]
+
+class ProxyScraper:
+    def __init__(self):
+        self.proxies = []
+        self.valid_proxies = []
     
-    print("[!] Enter an email address to track")
-    print("[!] This will check the email across multiple services")
-    print("="*60)
+    @staticmethod
+    def extract_proxies(text: str) -> List[str]:
+        pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}:\d{2,5}\b'
+        matches = re.findall(pattern, text)
+        valid = []
+        for m in matches:
+            parts = m.split(':')
+            if len(parts) == 2:
+                ip_parts = parts[0].split('.')
+                try:
+                    if all(0 <= int(p) <= 255 for p in ip_parts):
+                        port = int(parts[1])
+                        if 1 <= port <= 65535:
+                            valid.append(m)
+                except:
+                    pass
+        return list(set(valid))
     
-    email = input("\nEnter email address: ").strip()
-    
-    if not email:
-        print("No email entered")
-        input("\nPress Enter to continue...")
-        return
-    
-    if '@' not in email:
-        print("[!] Invalid email format - missing @")
-        input("\nPress Enter to continue...")
-        return
-    
-    username = email.split('@')[0]
-    domain = email.split('@')[1]
-    
-    print(f"\n[+] Tracking: {email}")
-    print(f"[+] Username: {username}")
-    print(f"[+] Domain: {domain}")
-    print("\n" + "="*60)
-    
-    results = {}
-    
-    # 1. Validate email format
-    print("\n[1] Validating email format...")
-    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    if re.match(email_pattern, email):
-        print("    Valid email format")
-        results['format'] = 'Valid'
-    else:
-        print("    Invalid email format")
-        results['format'] = 'Invalid'
-    
-    # 2. Check domain MX records
-    print("\n[2] Checking MX records...")
-    try:
-        mx_records = dns.resolver.resolve(domain, 'MX')
-        print(f"    MX records found: {len(mx_records)}")
-        for mx in mx_records:
-            print(f"    - {mx.exchange} (Priority: {mx.preference})")
-        results['mx_records'] = True
-    except:
-        print("    No MX records found")
-        results['mx_records'] = False
-    
-    # 3. Check if email provider is known
-    print("\n[3] Identifying provider...")
-    known_providers = {
-        'gmail.com': {'name': 'Google (Gmail)', 'check': 'https://mail.google.com'},
-        'googlemail.com': {'name': 'Google (Gmail)', 'check': 'https://mail.google.com'},
-        'outlook.com': {'name': 'Microsoft (Outlook)', 'check': 'https://outlook.live.com'},
-        'hotmail.com': {'name': 'Microsoft (Hotmail)', 'check': 'https://outlook.live.com'},
-        'live.com': {'name': 'Microsoft (Live)', 'check': 'https://outlook.live.com'},
-        'msn.com': {'name': 'Microsoft (MSN)', 'check': 'https://outlook.live.com'},
-        'yahoo.com': {'name': 'Yahoo', 'check': 'https://mail.yahoo.com'},
-        'yahoo.co.uk': {'name': 'Yahoo UK', 'check': 'https://mail.yahoo.com'},
-        'protonmail.com': {'name': 'ProtonMail', 'check': 'https://protonmail.com'},
-        'protonmail.ch': {'name': 'ProtonMail', 'check': 'https://protonmail.com'},
-        'pm.me': {'name': 'ProtonMail', 'check': 'https://protonmail.com'},
-        'icloud.com': {'name': 'Apple (iCloud)', 'check': 'https://icloud.com'},
-        'me.com': {'name': 'Apple (iCloud)', 'check': 'https://icloud.com'},
-        'mac.com': {'name': 'Apple (iCloud)', 'check': 'https://icloud.com'},
-        'aol.com': {'name': 'AOL', 'check': 'https://mail.aol.com'},
-        'mail.com': {'name': 'Mail.com', 'check': 'https://www.mail.com'},
-        'yandex.com': {'name': 'Yandex', 'check': 'https://mail.yandex.com'},
-        'yandex.ru': {'name': 'Yandex', 'check': 'https://mail.yandex.ru'},
-        'tutanota.com': {'name': 'Tutanota', 'check': 'https://tutanota.com'},
-        'tuta.io': {'name': 'Tutanota', 'check': 'https://tutanota.com'},
-        'zoho.com': {'name': 'Zoho', 'check': 'https://mail.zoho.com'},
-        'gmx.com': {'name': 'GMX', 'check': 'https://www.gmx.com'},
-        'web.de': {'name': 'Web.de', 'check': 'https://web.de'},
-        'fastmail.com': {'name': 'FastMail', 'check': 'https://www.fastmail.com'}
-    }
-    
-    if domain in known_providers:
-        print(f"    Provider: {known_providers[domain]['name']}")
-        print(f"    Login URL: {known_providers[domain]['check']}")
-        results['provider'] = known_providers[domain]['name']
-    else:
-        print(f"    Provider: Custom/Domain email")
-        results['provider'] = 'Custom'
-    
-    # 4. Check if email exists (using gravatar)
-    print("\n[4] Checking Gravatar...")
-    try:
-        import hashlib
-        email_hash = hashlib.md5(email.lower().encode()).hexdigest()
-        gravatar_url = f"https://www.gravatar.com/avatar/{email_hash}?d=404"
-        response = requests.get(gravatar_url, timeout=5)
-        if response.status_code == 200:
-            print("    Gravatar found!")
-            results['gravatar'] = True
-        else:
-            print("    No Gravatar found")
-            results['gravatar'] = False
-    except:
-        print("    Could not check Gravatar")
-    
-    # 5. Check Have I Been Pwned
-    print("\n[5] Checking Have I Been Pwned...")
-    try:
-        response = requests.get(
-            f"https://haveibeenpwned.com/api/v3/breachedaccount/{email}",
-            headers={'hibp-api-key': ''},
-            timeout=10
-        )
-        if response.status_code == 200:
-            breaches = response.json()
-            print(f"    Breaches found: {len(breaches)}")
-            for breach in breaches[:3]:
-                print(f"    - {breach.get('Name', 'Unknown')} ({breach.get('BreachDate', 'Unknown')})")
-            if len(breaches) > 3:
-                print(f"    ... and {len(breaches) - 3} more")
-            results['breaches'] = len(breaches)
-        elif response.status_code == 404:
-            print("    No breaches found")
-            results['breaches'] = 0
-        else:
-            print(f"    Error: {response.status_code}")
-    except:
-        print("    Could not check breaches")
-    
-    # 6. Check email reputation
-    print("\n[6] Checking email reputation...")
-    try:
-        response = requests.get(f"https://emailrep.io/{email}", timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            rep = data.get('reputation', 'Unknown')
-            suspicious = data.get('suspicious', False)
-            print(f"    Reputation: {rep}")
-            print(f"    Suspicious: {suspicious}")
-            results['reputation'] = rep
-        else:
-            print("    Could not get reputation")
-    except:
-        print("    Could not get reputation")
-    
-    # 7. Search for username across platforms
-    print("\n[7] Searching for username across platforms...")
-    platforms = {
-        'GitHub': f'https://github.com/{username}',
-        'Twitter': f'https://twitter.com/{username}',
-        'Instagram': f'https://instagram.com/{username}',
-        'Reddit': f'https://reddit.com/user/{username}',
-        'YouTube': f'https://youtube.com/@{username}',
-        'Facebook': f'https://facebook.com/{username}',
-        'LinkedIn': f'https://linkedin.com/in/{username}',
-        'Pinterest': f'https://pinterest.com/{username}',
-        'Tumblr': f'https://{username}.tumblr.com',
-        'GitLab': f'https://gitlab.com/{username}',
-        'Keybase': f'https://keybase.io/{username}',
-        'Medium': f'https://medium.com/@{username}',
-        'Spotify': f'https://open.spotify.com/user/{username}',
-        'Steam': f'https://steamcommunity.com/id/{username}'
-    }
-    
-    found_platforms = []
-    for platform, url in platforms.items():
+    async def scrape_url(self, session: aiohttp.ClientSession, url: str) -> List[str]:
         try:
-            response = requests.get(url, timeout=3, headers={'User-Agent': 'Mozilla/5.0'})
-            if response.status_code == 200:
-                print(f"    - Found on {platform}")
-                found_platforms.append(platform)
+            async with session.get(url, timeout=10) as resp:
+                if resp.status == 200:
+                    text = await resp.text()
+                    return self.extract_proxies(text)
         except:
             pass
+        return []
     
-    if found_platforms:
-        print(f"    Found on {len(found_platforms)} platforms")
-        results['platforms'] = found_platforms
-    else:
-        print("    No platforms found")
+    async def scrape_all(self) -> List[str]:
+        async with aiohttp.ClientSession(headers={"User-Agent": "Mozilla/5.0"}) as session:
+            tasks = [self.scrape_url(session, url) for url in PROXY_SOURCES]
+            results = await asyncio.gather(*tasks)
+        all_proxies = []
+        for res in results:
+            all_proxies.extend(res)
+        self.proxies = list(set(all_proxies))
+        return self.proxies
     
-    # 8. Generate email variations
-    print("\n[8] Email variations:")
-    variations = [
-        email,
-        f"{username}@{domain}",
-        f"{username.lower()}@{domain}",
-        f"{username.upper()}@{domain}",
-        f"{username}.{domain.split('.')[0]}@{domain}" if '.' in domain else None,
-    ]
-    for var in variations:
-        if var:
-            print(f"    - {var}")
+    async def validate_proxy(self, session: aiohttp.ClientSession, proxy: str) -> bool:
+        try:
+            proxy_url = f"http://{proxy}"
+            async with session.get("http://httpbin.org/ip", proxy=proxy_url, timeout=5) as resp:
+                return resp.status == 200
+        except:
+            return False
     
-    # 9. Generate Google dorks
-    print("\n[9] Google dorks for this email:")
-    dorks = [
-        f'"{email}"',
-        f'"{username}" "{domain}"',
-        f'site:github.com "{email}"',
-        f'site:linkedin.com "{email}"',
-        f'"{email}" filetype:pdf'
-    ]
-    for dork in dorks:
-        search_url = f"https://www.google.com/search?q={dork.replace(' ', '+')}"
-        print(f"    {search_url[:80]}...")
+    async def validate_all(self, max_check: int = 200) -> List[str]:
+        if not self.proxies:
+            return []
+        to_check = self.proxies[:max_check]
+        connector = aiohttp.TCPConnector(limit=100)
+        async with aiohttp.ClientSession(connector=connector, headers={"User-Agent": "Mozilla/5.0"}) as session:
+            tasks = [self.validate_proxy(session, p) for p in to_check]
+            results = await asyncio.gather(*tasks)
+        self.valid_proxies = [p for p, ok in zip(to_check, results) if ok]
+        return self.valid_proxies
     
-    # 10. Try to find social media links
-    print("\n[10] Checking for social media links...")
-    social_urls = [
-        f"https://www.facebook.com/search/top/?q={email}",
-        f"https://www.linkedin.com/search/results/all/?keywords={email}",
-        f"https://twitter.com/search?q={email}",
-        f"https://www.instagram.com/web/search/top/?q={email}",
-        f"https://github.com/search?q={email}"
-    ]
-    for url in social_urls:
-        print(f"    {url[:80]}...")
+    async def get_working(self) -> List[str]:
+        print("[*] Scraping proxies...")
+        await self.scrape_all()
+        print(f"[*] Found {len(self.proxies)} raw proxies. Validating...")
+        await self.validate_all()
+        print(f"[*] {len(self.valid_proxies)} working proxies found.")
+        return self.valid_proxies
     
-    # Summary
+    def save(self, filename: str = "proxies.txt"):
+        with open(filename, 'w') as f:
+            f.write("\n".join(self.valid_proxies))
+    
+    def load(self, filename: str = "proxies.txt") -> List[str]:
+        try:
+            with open(filename, 'r') as f:
+                proxies = [line.strip() for line in f if line.strip()]
+            self.valid_proxies = proxies
+            self.proxies = proxies
+            return proxies
+        except:
+            return []
+
+class EmailTracker:
+    def __init__(self, email: str, proxy_list: List[str] = None):
+        self.email = email
+        self.proxy_list = proxy_list or []
+        self.proxy_index = 0
+        self.results = {}
+        self.total_modules = len(TARGET_MODULES)
+        self.checked = 0
+        self.found_accounts = []
+    
+    def get_proxy(self) -> Optional[str]:
+        if not self.proxy_list:
+            return None
+        proxy = self.proxy_list[self.proxy_index % len(self.proxy_list)]
+        self.proxy_index += 1
+        return f"http://{proxy}"
+    
+    async def check_module(self, module_name: str) -> Tuple[str, bool, Dict]:
+        try:
+            module = getattr(holehe.modules, module_name)
+            proxy = self.get_proxy()
+            result = await module(self.email, proxy=proxy)
+            exists = result.get('rateLimit', False) or result.get('exists', False)
+            return (module_name, exists, result)
+        except Exception as e:
+            return (module_name, False, {"error": str(e)})
+    
+    async def scan_all(self) -> Dict:
+        print(f"\n[*] Scanning for accounts using: {self.email}")
+        print(f"[*] Checking {self.total_modules} platforms...")
+        print(f"[*] Using {len(self.proxy_list)} proxies\n")
+        
+        tasks = [self.check_module(m) for m in TARGET_MODULES]
+        
+        for future in asyncio.as_completed(tasks):
+            module_name, exists, result = await future
+            self.checked += 1
+            self.results[module_name] = {
+                "exists": exists,
+                "data": result
+            }
+            
+            if exists:
+                self.found_accounts.append((module_name, result))
+            
+            status = "FOUND" if exists else "NOT FOUND"
+            print(f"  [{self.checked:02d}/{self.total_modules}] {module_name:10} {status}")
+        
+        return self.results
+    
+    def get_profile_links(self) -> List[Dict]:
+        links = []
+        platform_urls = {
+            'facebook': 'https://facebook.com/',
+            'tiktok': 'https://tiktok.com/@',
+            'discord': 'https://discord.com/users/',
+            'spotify': 'https://open.spotify.com/user/',
+            'snapchat': 'https://snapchat.com/add/',
+            'github': 'https://github.com/',
+            'instagram': 'https://instagram.com/'
+        }
+        
+        for module_name, data in self.results.items():
+            if data["exists"]:
+                result = data["data"]
+                profile_url = result.get('profile', '')
+                if not profile_url:
+                    base = platform_urls.get(module_name, '')
+                    if base:
+                        username = result.get('username', '')
+                        if not username:
+                            username = self.email.split('@')[0]
+                        profile_url = base + username
+                    else:
+                        profile_url = f"https://{module_name}.com/"
+                
+                links.append({
+                    "platform": module_name.capitalize(),
+                    "url": profile_url,
+                    "email": result.get('email', self.email),
+                    "rate_limit": result.get('rateLimit', False)
+                })
+        return links
+    
+    def print_summary(self):
+        links = self.get_profile_links()
+        
+        print("\n" + "="*60)
+        print(f"ACCOUNTS FOUND FOR: {self.email}")
+        print("="*60)
+        print(f"Platforms checked: {self.total_modules}")
+        print(f"Accounts found: {len(links)}")
+        
+        if links:
+            print("\nFOUND:")
+            print("-"*50)
+            for link in sorted(links, key=lambda x: x['platform']):
+                rate_limit = " RATE LIMITED" if link['rate_limit'] else ""
+                print(f"  {link['platform']:10} -> {link['url']}{rate_limit}")
+        else:
+            print("\nNo accounts found.")
+        
+        print("="*60 + "\n")
+
+async def main_async():
     print("\n" + "="*60)
-    print("TRACKING SUMMARY")
+    print("EMAIL TRACKER - 7 Platforms with Proxy Support")
     print("="*60)
-    print(f"Email: {email}")
-    print(f"Username: {username}")
-    print(f"Domain: {domain}")
-    print(f"Provider: {results.get('provider', 'Unknown')}")
-    print(f"Format: {results.get('format', 'Unknown')}")
-    print(f"MX Records: {'Yes' if results.get('mx_records', False) else 'No'}")
-    print(f"Breaches: {results.get('breaches', 'Unknown')}")
-    print(f"Gravatar: {'Yes' if results.get('gravatar', False) else 'No'}")
-    if results.get('platforms'):
-        print(f"Platforms Found: {', '.join(results['platforms'][:5])}")
-    print("="*60)
+    print("Facebook, TikTok, Discord, Spotify, Snapchat, GitHub, Instagram")
+    print("Type 'exit' or 'quit' to stop.\n")
     
-    input("\nPress Enter to continue...")
+    proxy_scraper = ProxyScraper()
+    proxy_list = []
+    
+    try:
+        proxy_list = proxy_scraper.load()
+        if proxy_list:
+            print(f"[*] Loaded {len(proxy_list)} proxies from file")
+    except:
+        pass
+    
+    if not proxy_list:
+        proxy_list = await proxy_scraper.get_working()
+        if proxy_list:
+            proxy_scraper.save()
+    
+    while True:
+        email = input("\nEnter email: ").strip().lower()
+        
+        if email.lower() in ['exit', 'quit', '']:
+            print("Exiting...")
+            break
+        
+        if '@' not in email or '.' not in email:
+            print("Invalid email format.")
+            continue
+        
+        confirm = input(f"Scan '{email}'? (y/n): ").strip().lower()
+        if confirm != 'y':
+            print("Cancelled.")
+            continue
+        
+        start_time = time.time()
+        tracker = EmailTracker(email, proxy_list)
+        await tracker.scan_all()
+        elapsed = time.time() - start_time
+        
+        tracker.print_summary()
+        
+        print(f"Completed in {elapsed:.2f} seconds.")
+
+def main():
+    try:
+        asyncio.run(main_async())
+    except KeyboardInterrupt:
+        print("\n\nInterrupted. Exiting...")
+        sys.exit(0)
 
 if __name__ == "__main__":
-    run()
+    main()
