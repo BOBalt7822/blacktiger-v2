@@ -1,14 +1,19 @@
 
 
-import requests, random, string, time, sys, os, json, threading, queue
+import requests, random, string, time, sys, os, json, threading
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+GREEN = "\033[92m"
+RED = "\033[91m"
+RESET = "\033[0m"
 
 def run():
     print("\n" + "="*60)
-    print("DISCORD 4-LETTER USERNAME CHECKER")
+    print("DISCORD 4-LETTER USERNAME CHECKER - ULTRA FAST")
     print("="*60)
     
-    print("[1] Generate and check 4-letter usernames (Fast)")
+    print("[1] Generate and check 4-letter usernames")
     print("[2] Check a specific username")
     print("[3] Back")
     
@@ -21,26 +26,27 @@ def run():
     else:
         return
 
-def check_username_fast(username):
-    """Check if username exists on Discord - FAST API method"""
+def check_username(username, proxy=None):
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept': 'application/json',
         }
-        r = requests.get(f"https://discord.com/api/v9/users/{username}", headers=headers, timeout=2)
+        if proxy:
+            r = requests.get(f"https://discord.com/api/v9/users/{username}", headers=headers, timeout=2, proxies=proxy)
+        else:
+            r = requests.get(f"https://discord.com/api/v9/users/{username}", headers=headers, timeout=2)
         
         if r.status_code == 200:
-            return "taken"
+            return "TAKEN"
         elif r.status_code == 404:
-            return "available"
+            return "AVAILABLE"
         else:
-            return "unknown"
+            return "TAKEN"
     except:
-        return "unknown"
+        return "TAKEN"
 
 def send_webhook(webhook, username):
-    """Send hit to Discord webhook"""
     if not webhook or not webhook.startswith('https://discord.com/api/webhooks/'):
         return
     try:
@@ -58,121 +64,122 @@ def send_webhook(webhook, username):
     except:
         pass
 
+def scrape_proxies():
+    """Scrape free proxies from multiple sources"""
+    proxies = []
+    sources = [
+        "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all",
+        "https://free-proxy-list.net/",
+        "https://www.sslproxies.org/",
+        "https://www.us-proxy.org/"
+    ]
+    
+    print("[+] Scraping proxies...")
+    for src in sources:
+        try:
+            r = requests.get(src, timeout=10)
+            if r.status_code == 200:
+                for line in r.text.split('\n'):
+                    if ':' in line and '.' in line:
+                        proxy = line.strip()
+                        if proxy and not proxy.startswith('#'):
+                            proxies.append({'http': proxy, 'https': proxy})
+            time.sleep(0.5)
+        except:
+            pass
+    
+    # Remove duplicates
+    unique = []
+    seen = set()
+    for p in proxies:
+        if p['http'] not in seen:
+            seen.add(p['http'])
+            unique.append(p)
+    
+    print(f"[+] Found {len(unique)} proxies")
+    return unique
+
 def generate_fast():
     print("\n" + "="*60)
-    print("FAST USERNAME GENERATOR & CHECKER")
+    print("ULTRA FAST USERNAME CHECKER")
     print("="*60)
     
     count = int(input("Number of usernames to check [1000]: ").strip() or "1000")
-    threads = int(input("Threads [20]: ").strip() or "20")
+    threads = int(input("Threads [50]: ").strip() or "50")
     
     print("\nWebhook for hits (optional):")
-    print("Leave blank for no webhook")
     webhook = input("Webhook URL: ").strip()
     
     if webhook and webhook.startswith('https://discord.com/api/webhooks/'):
-        print("[+] Webhook set! Hits will be sent")
+        print("[+] Webhook set!")
     else:
-        print("[!] No webhook set. Hits will only be saved to file")
+        print("[!] No webhook set")
     
-    print(f"\n[+] Generating and checking {count} usernames with {threads} threads...")
+    # Scrape proxies
+    proxies = scrape_proxies()
+    if not proxies:
+        print("[!] No proxies found, running without proxies")
+    
+    print(f"\n[+] Checking {count} usernames with {threads} threads...")
     print("[+] Press Ctrl+C to stop\n")
-    print("="*60)
     
     available = []
-    taken = []
-    unknown = []
-    total_checked = 0
-    total_hits = 0
+    checked = 0
     lock = threading.Lock()
-    q = queue.Queue()
-    stop_event = threading.Event()
-    
-    # Fill queue with usernames
     chars = string.ascii_lowercase + string.digits
-    for _ in range(count):
-        username = ''.join(random.choices(chars, k=4))
-        q.put(username)
     
-    def worker():
-        nonlocal total_checked, total_hits
-        while not stop_event.is_set():
-            try:
-                username = q.get(timeout=1)
-            except:
-                break
+    def worker(username):
+        nonlocal checked
+        proxy = random.choice(proxies) if proxies else None
+        status = check_username(username, proxy)
+        
+        with lock:
+            checked += 1
+            if checked % 50 == 0:
+                print(f"[+] Checked: {checked} | Available: {len(available)}")
             
-            status = check_username_fast(username)
-            
-            with lock:
-                total_checked += 1
-                
-                if status == "available":
-                    available.append(username)
-                    total_hits += 1
-                    print(f"[HIT] {username} AVAILABLE!")
-                    if webhook:
-                        send_webhook(webhook, username)
-                elif status == "taken":
-                    taken.append(username)
-                else:
-                    unknown.append(username)
-                
-                if total_checked % 100 == 0:
-                    print(f"[+] Checked: {total_checked} | Hits: {total_hits}")
-            
-            q.task_done()
+            if status == "AVAILABLE":
+                print(f"{GREEN}{username} AVAILABLE{RESET}")
+                available.append(username)
+                if webhook:
+                    send_webhook(webhook, username)
+            else:
+                print(f"{RED}{username} TAKEN{RESET}")
+    
+    # Generate usernames
+    usernames = [''.join(random.choices(chars, k=4)) for _ in range(count)]
     
     start = time.time()
     
-    # Start threads
-    worker_threads = []
-    for _ in range(threads):
-        t = threading.Thread(target=worker)
-        t.start()
-        worker_threads.append(t)
-    
-    try:
-        q.join()
-    except KeyboardInterrupt:
-        print("\n[!] Stopped by user")
-        stop_event.set()
-    
-    stop_event.set()
-    for t in worker_threads:
-        t.join()
+    # Use ThreadPoolExecutor for ultra fast checking
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        executor.map(worker, usernames)
     
     elapsed = time.time() - start
     
-    # Results
     print("\n" + "="*60)
     print("RESULTS")
     print("="*60)
-    print(f"Total checked: {total_checked}")
-    print(f"Available: {len(available)}")
-    print(f"Taken: {len(taken)}")
-    print(f"Unknown: {len(unknown)}")
-    print(f"Speed: {total_checked/elapsed:.0f}/s")
+    print(f"Checked: {count}")
     print(f"Time: {elapsed:.2f}s")
+    print(f"Speed: {count/elapsed:.0f} usernames/sec")
+    print(f"{GREEN}Available: {len(available)}{RESET}")
     
     if available:
         print("\n" + "="*60)
         print("AVAILABLE USERNAMES:")
         print("="*60)
-        for i, name in enumerate(available, 1):
-            print(f"  [{i:02d}] {name}")
+        for name in available:
+            print(f"  {GREEN}{name}{RESET}")
         
-        # Save to file
         try:
             out_dir = os.path.expanduser("~/Downloads/BlackTiger_Output")
             os.makedirs(out_dir, exist_ok=True)
             path = os.path.join(out_dir, "available_usernames.txt")
             with open(path, 'w') as f:
-                f.write("AVAILABLE DISCORD USERNAMES\n")
-                f.write("="*40 + "\n")
                 for name in available:
                     f.write(f"{name}\n")
-            print(f"\n[+] Available usernames saved to: {path}")
+            print(f"\n[+] Saved to: {path}")
         except:
             pass
     
@@ -196,16 +203,12 @@ def check_specific():
         return
     
     print(f"\n[+] Checking: {username}")
-    status = check_username_fast(username)
+    status = check_username(username)
     
-    if status == "available":
-        print(f"\n[+] Username '{username}' is AVAILABLE!")
-        print("   Try registering it on Discord quickly")
-    elif status == "taken":
-        print(f"\n[-] Username '{username}' is TAKEN")
+    if status == "AVAILABLE":
+        print(f"\n{GREEN}[+] Username '{username}' is AVAILABLE!{RESET}")
     else:
-        print(f"\n[?] Could not determine availability")
-        print("   Try checking manually on Discord")
+        print(f"\n{RED}[-] Username '{username}' is TAKEN{RESET}")
     
     input("\nPress Enter to continue...")
 
