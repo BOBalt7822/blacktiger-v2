@@ -11,7 +11,7 @@ from typing import Dict, List, Tuple, Optional
 try:
     import holehe
 except ImportError:
-    print("\n[!] Install: pip install holehe aiohttp beautifulsoup4")
+    print("\n[!] Install: pip install holehe aiohttp beautifulsoup4 --break-system-packages")
     sys.exit(1)
 
 TARGET_MODULES = [
@@ -266,12 +266,15 @@ async def main_async():
         
         print(f"Completed in {elapsed:.2f} seconds.")
 
-def main():
+def run():
     try:
         asyncio.run(main_async())
     except KeyboardInterrupt:
         print("\n\nInterrupted. Exiting...")
         sys.exit(0)
 
+def main():
+    run()
+
 if __name__ == "__main__":
-    main()
+    run()
