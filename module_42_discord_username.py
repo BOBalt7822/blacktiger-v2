@@ -1,4 +1,6 @@
-
+#!/usr/bin/env python3
+# Discord 4-Letter Username Checker 
+# Made by BOB
 
 import requests, random, string, time, sys, os, json, threading
 from datetime import datetime
@@ -10,7 +12,7 @@ RESET = "\033[0m"
 
 def run():
     print("\n" + "="*60)
-    print("DISCORD 4-LETTER USERNAME CHECKER - ULTRA FAST")
+    print("DISCORD 4-LETTER USERNAME CHECKER")
     print("="*60)
     
     print("[1] Generate and check 4-letter usernames")
@@ -65,16 +67,13 @@ def send_webhook(webhook, username):
         pass
 
 def scrape_proxies():
-    """Scrape free proxies from multiple sources"""
     proxies = []
     sources = [
         "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all",
         "https://free-proxy-list.net/",
         "https://www.sslproxies.org/",
-        "https://www.us-proxy.org/"
     ]
     
-    print("[+] Scraping proxies...")
     for src in sources:
         try:
             r = requests.get(src, timeout=10)
@@ -88,7 +87,6 @@ def scrape_proxies():
         except:
             pass
     
-    # Remove duplicates
     unique = []
     seen = set()
     for p in proxies:
@@ -96,32 +94,23 @@ def scrape_proxies():
             seen.add(p['http'])
             unique.append(p)
     
-    print(f"[+] Found {len(unique)} proxies")
     return unique
 
 def generate_fast():
     print("\n" + "="*60)
-    print("ULTRA FAST USERNAME CHECKER")
+    print("USERNAME CHECKER")
     print("="*60)
     
-    count = int(input("Number of usernames to check [1000]: ").strip() or "1000")
+    count = int(input("Number of usernames [1000]: ").strip() or "1000")
     threads = int(input("Threads [50]: ").strip() or "50")
     
-    print("\nWebhook for hits (optional):")
-    webhook = input("Webhook URL: ").strip()
+    webhook = input("Webhook URL (optional): ").strip()
     
-    if webhook and webhook.startswith('https://discord.com/api/webhooks/'):
-        print("[+] Webhook set!")
-    else:
-        print("[!] No webhook set")
-    
-    # Scrape proxies
+    print("\n[+] Scraping proxies...")
     proxies = scrape_proxies()
-    if not proxies:
-        print("[!] No proxies found, running without proxies")
+    print(f"[+] {len(proxies)} proxies loaded")
     
-    print(f"\n[+] Checking {count} usernames with {threads} threads...")
-    print("[+] Press Ctrl+C to stop\n")
+    print(f"\n[+] Checking {count} usernames...\n")
     
     available = []
     checked = 0
@@ -135,39 +124,31 @@ def generate_fast():
         
         with lock:
             checked += 1
-            if checked % 50 == 0:
-                print(f"[+] Checked: {checked} | Available: {len(available)}")
-            
             if status == "AVAILABLE":
-                print(f"{GREEN}{username} AVAILABLE{RESET}")
+                print(f"{GREEN}{username}{RESET}")
                 available.append(username)
                 if webhook:
                     send_webhook(webhook, username)
             else:
-                print(f"{RED}{username} TAKEN{RESET}")
+                print(f"{RED}{username}{RESET}")
     
-    # Generate usernames
     usernames = [''.join(random.choices(chars, k=4)) for _ in range(count)]
     
     start = time.time()
     
-    # Use ThreadPoolExecutor for ultra fast checking
     with ThreadPoolExecutor(max_workers=threads) as executor:
         executor.map(worker, usernames)
     
     elapsed = time.time() - start
     
     print("\n" + "="*60)
-    print("RESULTS")
-    print("="*60)
     print(f"Checked: {count}")
-    print(f"Time: {elapsed:.2f}s")
-    print(f"Speed: {count/elapsed:.0f} usernames/sec")
+    print(f"Speed: {count/elapsed:.0f}/s")
     print(f"{GREEN}Available: {len(available)}{RESET}")
     
     if available:
         print("\n" + "="*60)
-        print("AVAILABLE USERNAMES:")
+        print("AVAILABLE:")
         print("="*60)
         for name in available:
             print(f"  {GREEN}{name}{RESET}")
@@ -206,9 +187,9 @@ def check_specific():
     status = check_username(username)
     
     if status == "AVAILABLE":
-        print(f"\n{GREEN}[+] Username '{username}' is AVAILABLE!{RESET}")
+        print(f"\n{GREEN}[+] AVAILABLE!{RESET}")
     else:
-        print(f"\n{RED}[-] Username '{username}' is TAKEN{RESET}")
+        print(f"\n{RED}[-] TAKEN{RESET}")
     
     input("\nPress Enter to continue...")
 
