@@ -1,18 +1,118 @@
 #!/usr/bin/env python3
-# email_tracker.py
+import sys
+import os
+import subprocess
+import importlib
+import tempfile
+import shutil
+import time
+
+def get_platform():
+    if sys.platform == "win32":
+        return "windows"
+    elif sys.platform == "darwin":
+        return "macos"
+    else:
+        return "linux"
+
+def run_cmd(cmd):
+    try:
+        subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+        return True
+    except:
+        return False
+
+def install_package(pkg):
+    plat = get_platform()
+    try:
+        importlib.import_module(pkg)
+        return True
+    except ImportError:
+        pass
+    
+    if plat == "windows":
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", pkg], capture_output=True, check=True)
+            return True
+        except:
+            pass
+    else:
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "--user", pkg], capture_output=True, check=True)
+            try:
+                importlib.import_module(pkg)
+                return True
+            except:
+                pass
+        except:
+            pass
+        
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "--break-system-packages", pkg], capture_output=True, check=True)
+            try:
+                importlib.import_module(pkg)
+                return True
+            except:
+                pass
+        except:
+            pass
+    
+    return False
+
+def create_venv_and_run():
+    temp_dir = tempfile.mkdtemp()
+    venv_path = os.path.join(temp_dir, "venv")
+    subprocess.run([sys.executable, "-m", "venv", venv_path], capture_output=True)
+    if sys.platform == "win32":
+        pip_path = os.path.join(venv_path, "Scripts", "pip")
+        python_path = os.path.join(venv_path, "Scripts", "python")
+    else:
+        pip_path = os.path.join(venv_path, "bin", "pip")
+        python_path = os.path.join(venv_path, "bin", "python")
+    subprocess.run([pip_path, "install", "aiohttp", "beautifulsoup4", "holehe"], capture_output=True, check=False)
+    script_path = os.path.join(temp_dir, "runner.py")
+    with open(__file__, 'r') as f:
+        content = f.read()
+    content = content.replace("import sys", "import sys\nIN_VENV = True", 1)
+    with open(script_path, 'w') as f:
+        f.write(content)
+    subprocess.run([python_path, script_path] + sys.argv[1:])
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    sys.exit(0)
+
+if not hasattr(sys, 'IN_VENV'):
+    packages = ["aiohttp", "beautifulsoup4", "holehe"]
+    missing = []
+    for pkg in packages:
+        try:
+            importlib.import_module(pkg)
+        except ImportError:
+            missing.append(pkg)
+    if missing:
+        print("Installing dependencies...")
+        installed_all = True
+        for pkg in missing:
+            if not install_package(pkg):
+                installed_all = False
+        if not installed_all:
+            print("Creating isolated virtual environment...")
+            create_venv_and_run()
+        for pkg in missing:
+            try:
+                importlib.import_module(pkg)
+            except ImportError:
+                create_venv_and_run()
 
 import asyncio
-import sys
-import time
 import re
+import json
 import aiohttp
 from typing import Dict, List, Tuple, Optional
 
 try:
     import holehe
 except ImportError:
-    print("\n[!] Install: pip install holehe aiohttp beautifulsoup4 --break-system-packages")
-    sys.exit(1)
+    create_venv_and_run()
 
 TARGET_MODULES = [
     'facebook',
@@ -21,7 +121,20 @@ TARGET_MODULES = [
     'spotify',
     'snapchat',
     'github',
-    'instagram'
+    'instagram',
+    'twitter',
+    'reddit',
+    'pinterest',
+    'tumblr',
+    'twitch',
+    'paypal',
+    'adobe',
+    'wordpress',
+    'protonmail',
+    'mailru',
+    'yahoo',
+    'microsoft',
+    'linkedin'
 ]
 
 PROXY_SOURCES = [
@@ -29,6 +142,7 @@ PROXY_SOURCES = [
     "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
     "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
     "https://www.proxy-list.download/api/v1/get?type=http",
+    "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt"
 ]
 
 class ProxyScraper:
@@ -56,7 +170,7 @@ class ProxyScraper:
     
     async def scrape_url(self, session: aiohttp.ClientSession, url: str) -> List[str]:
         try:
-            async with session.get(url, timeout=10) as resp:
+            async with session.get(url, timeout=15) as resp:
                 if resp.status == 200:
                     text = await resp.text()
                     return self.extract_proxies(text)
@@ -65,7 +179,7 @@ class ProxyScraper:
         return []
     
     async def scrape_all(self) -> List[str]:
-        async with aiohttp.ClientSession(headers={"User-Agent": "Mozilla/5.0"}) as session:
+        async with aiohttp.ClientSession(headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}) as session:
             tasks = [self.scrape_url(session, url) for url in PROXY_SOURCES]
             results = await asyncio.gather(*tasks)
         all_proxies = []
@@ -82,11 +196,11 @@ class ProxyScraper:
         except:
             return False
     
-    async def validate_all(self, max_check: int = 200) -> List[str]:
+    async def validate_all(self, max_check: int = 100) -> List[str]:
         if not self.proxies:
             return []
         to_check = self.proxies[:max_check]
-        connector = aiohttp.TCPConnector(limit=100)
+        connector = aiohttp.TCPConnector(limit=50)
         async with aiohttp.ClientSession(connector=connector, headers={"User-Agent": "Mozilla/5.0"}) as session:
             tasks = [self.validate_proxy(session, p) for p in to_check]
             results = await asyncio.gather(*tasks)
@@ -115,6 +229,157 @@ class ProxyScraper:
         except:
             return []
 
+class CountryDetector:
+    @staticmethod
+    def get_domain_country(email: str) -> Dict:
+        domain = email.split('@')[-1].lower()
+        
+        domain_country_map = {
+            '.uk': {'country': 'United Kingdom', 'code': 'GB'},
+            '.co.uk': {'country': 'United Kingdom', 'code': 'GB'},
+            '.org.uk': {'country': 'United Kingdom', 'code': 'GB'},
+            '.ac.uk': {'country': 'United Kingdom', 'code': 'GB'},
+            '.fr': {'country': 'France', 'code': 'FR'},
+            '.de': {'country': 'Germany', 'code': 'DE'},
+            '.it': {'country': 'Italy', 'code': 'IT'},
+            '.es': {'country': 'Spain', 'code': 'ES'},
+            '.pt': {'country': 'Portugal', 'code': 'PT'},
+            '.nl': {'country': 'Netherlands', 'code': 'NL'},
+            '.be': {'country': 'Belgium', 'code': 'BE'},
+            '.ch': {'country': 'Switzerland', 'code': 'CH'},
+            '.at': {'country': 'Austria', 'code': 'AT'},
+            '.se': {'country': 'Sweden', 'code': 'SE'},
+            '.no': {'country': 'Norway', 'code': 'NO'},
+            '.dk': {'country': 'Denmark', 'code': 'DK'},
+            '.fi': {'country': 'Finland', 'code': 'FI'},
+            '.pl': {'country': 'Poland', 'code': 'PL'},
+            '.cz': {'country': 'Czech Republic', 'code': 'CZ'},
+            '.hu': {'country': 'Hungary', 'code': 'HU'},
+            '.gr': {'country': 'Greece', 'code': 'GR'},
+            '.ru': {'country': 'Russia', 'code': 'RU'},
+            '.ua': {'country': 'Ukraine', 'code': 'UA'},
+            '.ro': {'country': 'Romania', 'code': 'RO'},
+            '.bg': {'country': 'Bulgaria', 'code': 'BG'},
+            '.hr': {'country': 'Croatia', 'code': 'HR'},
+            '.sk': {'country': 'Slovakia', 'code': 'SK'},
+            '.si': {'country': 'Slovenia', 'code': 'SI'},
+            '.lt': {'country': 'Lithuania', 'code': 'LT'},
+            '.lv': {'country': 'Latvia', 'code': 'LV'},
+            '.ee': {'country': 'Estonia', 'code': 'EE'},
+            '.ie': {'country': 'Ireland', 'code': 'IE'},
+            '.is': {'country': 'Iceland', 'code': 'IS'},
+            '.ca': {'country': 'Canada', 'code': 'CA'},
+            '.mx': {'country': 'Mexico', 'code': 'MX'},
+            '.br': {'country': 'Brazil', 'code': 'BR'},
+            '.ar': {'country': 'Argentina', 'code': 'AR'},
+            '.cl': {'country': 'Chile', 'code': 'CL'},
+            '.co': {'country': 'Colombia', 'code': 'CO'},
+            '.pe': {'country': 'Peru', 'code': 'PE'},
+            '.jp': {'country': 'Japan', 'code': 'JP'},
+            '.cn': {'country': 'China', 'code': 'CN'},
+            '.in': {'country': 'India', 'code': 'IN'},
+            '.kr': {'country': 'South Korea', 'code': 'KR'},
+            '.sg': {'country': 'Singapore', 'code': 'SG'},
+            '.my': {'country': 'Malaysia', 'code': 'MY'},
+            '.ph': {'country': 'Philippines', 'code': 'PH'},
+            '.vn': {'country': 'Vietnam', 'code': 'VN'},
+            '.th': {'country': 'Thailand', 'code': 'TH'},
+            '.id': {'country': 'Indonesia', 'code': 'ID'},
+            '.pk': {'country': 'Pakistan', 'code': 'PK'},
+            '.bd': {'country': 'Bangladesh', 'code': 'BD'},
+            '.lk': {'country': 'Sri Lanka', 'code': 'LK'},
+            '.np': {'country': 'Nepal', 'code': 'NP'},
+            '.il': {'country': 'Israel', 'code': 'IL'},
+            '.sa': {'country': 'Saudi Arabia', 'code': 'SA'},
+            '.ae': {'country': 'UAE', 'code': 'AE'},
+            '.tr': {'country': 'Turkey', 'code': 'TR'},
+            '.au': {'country': 'Australia', 'code': 'AU'},
+            '.nz': {'country': 'New Zealand', 'code': 'NZ'},
+            '.za': {'country': 'South Africa', 'code': 'ZA'},
+            '.ng': {'country': 'Nigeria', 'code': 'NG'},
+            '.ke': {'country': 'Kenya', 'code': 'KE'},
+            '.eg': {'country': 'Egypt', 'code': 'EG'}
+        }
+        
+        if domain in domain_country_map:
+            return domain_country_map[domain]
+        
+        for tld, info in domain_country_map.items():
+            if domain.endswith(tld):
+                return info
+        
+        domain_specific = {
+            'gmail.com': {'country': 'United States', 'code': 'US'},
+            'yahoo.com': {'country': 'United States', 'code': 'US'},
+            'yahoo.co.uk': {'country': 'United Kingdom', 'code': 'GB'},
+            'hotmail.com': {'country': 'United States', 'code': 'US'},
+            'outlook.com': {'country': 'United States', 'code': 'US'},
+            'live.com': {'country': 'United States', 'code': 'US'},
+            'msn.com': {'country': 'United States', 'code': 'US'},
+            'aol.com': {'country': 'United States', 'code': 'US'},
+            'protonmail.com': {'country': 'Switzerland', 'code': 'CH'},
+            'protonmail.ch': {'country': 'Switzerland', 'code': 'CH'},
+            'mail.com': {'country': 'United States', 'code': 'US'},
+            'yandex.com': {'country': 'Russia', 'code': 'RU'},
+            'yandex.ru': {'country': 'Russia', 'code': 'RU'},
+            'mail.ru': {'country': 'Russia', 'code': 'RU'},
+            'rambler.ru': {'country': 'Russia', 'code': 'RU'},
+            'icloud.com': {'country': 'United States', 'code': 'US'},
+            'me.com': {'country': 'United States', 'code': 'US'},
+            'mac.com': {'country': 'United States', 'code': 'US'},
+            'facebook.com': {'country': 'United States', 'code': 'US'},
+            'twitter.com': {'country': 'United States', 'code': 'US'},
+            'instagram.com': {'country': 'United States', 'code': 'US'},
+            'reddit.com': {'country': 'United States', 'code': 'US'},
+            'github.com': {'country': 'United States', 'code': 'US'},
+            'gitlab.com': {'country': 'United States', 'code': 'US'},
+            'bitbucket.com': {'country': 'United States', 'code': 'US'},
+            'dropbox.com': {'country': 'United States', 'code': 'US'},
+            'mega.nz': {'country': 'New Zealand', 'code': 'NZ'},
+            'tutanota.com': {'country': 'Germany', 'code': 'DE'},
+            'tutanota.de': {'country': 'Germany', 'code': 'DE'},
+            'posteo.de': {'country': 'Germany', 'code': 'DE'},
+            'mailbox.org': {'country': 'Germany', 'code': 'DE'},
+            'kolabnow.com': {'country': 'Switzerland', 'code': 'CH'},
+            'fastmail.com': {'country': 'United States', 'code': 'US'},
+            'fastmail.fm': {'country': 'United States', 'code': 'US'},
+            'zoho.com': {'country': 'India', 'code': 'IN'},
+            'zoho.eu': {'country': 'India', 'code': 'IN'},
+            'hushmail.com': {'country': 'Canada', 'code': 'CA'},
+            'hush.ai': {'country': 'Canada', 'code': 'CA'},
+            'cyberia.net': {'country': 'Saudi Arabia', 'code': 'SA'},
+            'inbox.lv': {'country': 'Latvia', 'code': 'LV'},
+            'inbox.com': {'country': 'United States', 'code': 'US'},
+            'lycos.com': {'country': 'United States', 'code': 'US'},
+            'lycos.es': {'country': 'Spain', 'code': 'ES'},
+            'lycos.it': {'country': 'Italy', 'code': 'IT'},
+            'lycos.fr': {'country': 'France', 'code': 'FR'},
+            'terra.com': {'country': 'Brazil', 'code': 'BR'},
+            'terra.com.br': {'country': 'Brazil', 'code': 'BR'},
+            'ig.com.br': {'country': 'Brazil', 'code': 'BR'},
+            'uol.com.br': {'country': 'Brazil', 'code': 'BR'},
+            'globo.com': {'country': 'Brazil', 'code': 'BR'},
+            'globomail.com': {'country': 'Brazil', 'code': 'BR'},
+            'xtra.co.nz': {'country': 'New Zealand', 'code': 'NZ'},
+            'clear.net.nz': {'country': 'New Zealand', 'code': 'NZ'},
+            'vodafone.co.nz': {'country': 'New Zealand', 'code': 'NZ'},
+            'spark.co.nz': {'country': 'New Zealand', 'code': 'NZ'},
+            'bigpond.com': {'country': 'Australia', 'code': 'AU'},
+            'bigpond.net.au': {'country': 'Australia', 'code': 'AU'},
+            'optusnet.com.au': {'country': 'Australia', 'code': 'AU'},
+            'iinet.net.au': {'country': 'Australia', 'code': 'AU'},
+            'internode.on.net': {'country': 'Australia', 'code': 'AU'},
+            'tpg.com.au': {'country': 'Australia', 'code': 'AU'},
+            'live.co.uk': {'country': 'United Kingdom', 'code': 'GB'},
+            'live.fr': {'country': 'France', 'code': 'FR'},
+            'live.de': {'country': 'Germany', 'code': 'DE'}
+        }
+        
+        if domain in domain_specific:
+            return domain_specific[domain]
+        
+        return {'country': 'Unknown', 'code': 'XX'}
+
 class EmailTracker:
     def __init__(self, email: str, proxy_list: List[str] = None):
         self.email = email
@@ -124,6 +389,9 @@ class EmailTracker:
         self.total_modules = len(TARGET_MODULES)
         self.checked = 0
         self.found_accounts = []
+        self.rate_limited = []
+        self.errors = []
+        self.country_info = CountryDetector.get_domain_country(email)
     
     def get_proxy(self) -> Optional[str]:
         if not self.proxy_list:
@@ -137,13 +405,25 @@ class EmailTracker:
             module = getattr(holehe.modules, module_name)
             proxy = self.get_proxy()
             result = await module(self.email, proxy=proxy)
-            exists = result.get('rateLimit', False) or result.get('exists', False)
+            
+            exists = False
+            if isinstance(result, dict):
+                exists = result.get('rateLimit', False) or result.get('exists', False)
+                if not exists:
+                    exists = result.get('found', False)
+                if not exists:
+                    email_check = result.get('email', '')
+                    if isinstance(email_check, str) and email_check.lower() == self.email.lower():
+                        exists = True
+            
             return (module_name, exists, result)
         except Exception as e:
             return (module_name, False, {"error": str(e)})
     
     async def scan_all(self) -> Dict:
         print(f"\n[*] Scanning for accounts using: {self.email}")
+        print(f"[*] Domain: {self.email.split('@')[1]}")
+        print(f"[*] Country: {self.country_info['country']} ({self.country_info['code']})")
         print(f"[*] Checking {self.total_modules} platforms...")
         print(f"[*] Using {len(self.proxy_list)} proxies\n")
         
@@ -152,16 +432,29 @@ class EmailTracker:
         for future in asyncio.as_completed(tasks):
             module_name, exists, result = await future
             self.checked += 1
+            
+            if exists:
+                self.found_accounts.append((module_name, result))
+            
+            if result.get('rateLimit', False):
+                self.rate_limited.append(module_name)
+            
+            if 'error' in result and result['error']:
+                self.errors.append((module_name, result['error']))
+            
             self.results[module_name] = {
                 "exists": exists,
                 "data": result
             }
             
             if exists:
-                self.found_accounts.append((module_name, result))
+                status = "FOUND"
+                color = "\033[91m"
+            else:
+                status = "NOT FOUND"
+                color = "\033[92m"
             
-            status = "FOUND" if exists else "NOT FOUND"
-            print(f"  [{self.checked:02d}/{self.total_modules}] {module_name:10} {status}")
+            print(f"  [{self.checked:02d}/{self.total_modules}] {module_name:12} {color}{status}\033[0m")
         
         return self.results
     
@@ -174,7 +467,20 @@ class EmailTracker:
             'spotify': 'https://open.spotify.com/user/',
             'snapchat': 'https://snapchat.com/add/',
             'github': 'https://github.com/',
-            'instagram': 'https://instagram.com/'
+            'instagram': 'https://instagram.com/',
+            'twitter': 'https://twitter.com/',
+            'reddit': 'https://reddit.com/user/',
+            'pinterest': 'https://pinterest.com/',
+            'tumblr': 'https://tumblr.com/',
+            'twitch': 'https://twitch.tv/',
+            'paypal': 'https://paypal.com/',
+            'adobe': 'https://adobe.com/',
+            'wordpress': 'https://wordpress.com/',
+            'protonmail': 'https://protonmail.com/',
+            'mailru': 'https://mail.ru/',
+            'yahoo': 'https://yahoo.com/',
+            'microsoft': 'https://microsoft.com/',
+            'linkedin': 'https://linkedin.com/in/'
         }
         
         for module_name, data in self.results.items():
@@ -195,35 +501,62 @@ class EmailTracker:
                     "platform": module_name.capitalize(),
                     "url": profile_url,
                     "email": result.get('email', self.email),
-                    "rate_limit": result.get('rateLimit', False)
+                    "rate_limit": result.get('rateLimit', False),
+                    "username": result.get('username', '')
                 })
         return links
     
     def print_summary(self):
         links = self.get_profile_links()
+        found_count = len(links)
         
-        print("\n" + "="*60)
+        print("\n" + "="*70)
         print(f"ACCOUNTS FOUND FOR: {self.email}")
-        print("="*60)
+        print("="*70)
+        print(f"Country: {self.country_info['country']} ({self.country_info['code']})")
         print(f"Platforms checked: {self.total_modules}")
-        print(f"Accounts found: {len(links)}")
+        print(f"Accounts found: {found_count}")
+        print(f"Rate limited: {len(self.rate_limited)}")
+        print(f"Errors: {len(self.errors)}")
         
         if links:
-            print("\nFOUND:")
-            print("-"*50)
+            print("\nFOUND ACCOUNTS:")
+            print("-"*70)
             for link in sorted(links, key=lambda x: x['platform']):
-                rate_limit = " RATE LIMITED" if link['rate_limit'] else ""
-                print(f"  {link['platform']:10} -> {link['url']}{rate_limit}")
+                rate_limit = " [RATE LIMITED]" if link['rate_limit'] else ""
+                username = f" (@{link['username']})" if link['username'] else ""
+                print(f"  {link['platform']:12} -> {link['url']}{username}{rate_limit}")
         else:
             print("\nNo accounts found.")
         
-        print("="*60 + "\n")
+        if self.errors:
+            print("\nERRORS:")
+            for module, error in self.errors:
+                print(f"  {module}: {error[:100]}")
+        
+        print("="*70 + "\n")
+    
+    def save_results(self, filename: str = "results.json"):
+        output = {
+            "email": self.email,
+            "domain": self.email.split('@')[1],
+            "country": self.country_info,
+            "timestamp": time.time(),
+            "total_checked": self.total_modules,
+            "accounts_found": len(self.get_profile_links()),
+            "results": self.results
+        }
+        with open(filename, 'w') as f:
+            json.dump(output, f, indent=2)
 
 async def main_async():
-    print("\n" + "="*60)
-    print("EMAIL TRACKER")
-    print("="*60)
-    print("Facebook, TikTok, Discord, Spotify, Snapchat, GitHub, Instagram")
+    print("\n" + "="*70)
+    print("EMAIL TRACKER v3 - Fixed Country Detection")
+    print("="*70)
+    print("Checks: Facebook, TikTok, Discord, Spotify, Snapchat,")
+    print("GitHub, Instagram, Twitter, Reddit, Pinterest, Tumblr,")
+    print("Twitch, PayPal, Adobe, Wordpress, Protonmail, Mailru,")
+    print("Yahoo, Microsoft, LinkedIn")
     print("Type 'exit' or 'quit' to stop.\n")
     
     proxy_scraper = ProxyScraper()
@@ -237,9 +570,14 @@ async def main_async():
         pass
     
     if not proxy_list:
+        print("[*] No proxies found. Scraping new ones...")
         proxy_list = await proxy_scraper.get_working()
         if proxy_list:
             proxy_scraper.save()
+            print(f"[*] Saved {len(proxy_list)} proxies to proxies.txt")
+    
+    if not proxy_list:
+        print("[!] No working proxies found. Running without proxies...")
     
     while True:
         email = input("\nEnter email: ").strip().lower()
@@ -263,18 +601,23 @@ async def main_async():
         elapsed = time.time() - start_time
         
         tracker.print_summary()
+        tracker.save_results(f"results_{email.split('@')[0]}.json")
         
         print(f"Completed in {elapsed:.2f} seconds.")
+        print(f"Results saved to results_{email.split('@')[0]}.json")
 
 def run():
     try:
+        if sys.platform == "win32":
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         asyncio.run(main_async())
     except KeyboardInterrupt:
         print("\n\nInterrupted. Exiting...")
         sys.exit(0)
-
-def main():
-    run()
+    except Exception as e:
+        print(f"\n[!] Error: {e}")
+        input("\nPress Enter to exit...")
+        sys.exit(1)
 
 if __name__ == "__main__":
     run()
