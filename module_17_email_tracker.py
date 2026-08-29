@@ -5,88 +5,42 @@ import subprocess
 import importlib
 import time
 
-def get_platform():
-    if sys.platform == "win32":
-        return "windows"
-    elif sys.platform == "darwin":
-        return "macos"
-    else:
-        return "linux"
-
 def install_package(pkg):
-    plat = get_platform()
     try:
         importlib.import_module(pkg)
         return True
     except ImportError:
         pass
     
-    print(f"[*] Installing {pkg}...")
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", pkg, "--quiet"], capture_output=True, check=True)
+        return True
+    except:
+        pass
     
-    if plat == "windows":
-        try:
-            subprocess.run([sys.executable, "-m", "pip", "install", pkg, "--quiet"], capture_output=True, check=True)
-            try:
-                importlib.import_module(pkg)
-                return True
-            except:
-                pass
-        except:
-            pass
-    else:
-        try:
-            subprocess.run([sys.executable, "-m", "pip", "install", "--user", pkg, "--quiet"], capture_output=True, check=True)
-            try:
-                importlib.import_module(pkg)
-                return True
-            except:
-                pass
-        except:
-            pass
-        
-        try:
-            subprocess.run([sys.executable, "-m", "pip", "install", "--break-system-packages", pkg, "--quiet"], capture_output=True, check=True)
-            try:
-                importlib.import_module(pkg)
-                return True
-            except:
-                pass
-        except:
-            pass
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "--user", pkg, "--quiet"], capture_output=True, check=True)
+        return True
+    except:
+        pass
     
     return False
 
 def ensure_dependencies():
     packages = [
         ("aiohttp", "aiohttp"),
-        ("bs4", "beautifulsoup4"),
         ("holehe", "holehe")
     ]
     
-    missing = []
     for mod_name, pkg_name in packages:
         try:
             importlib.import_module(mod_name)
         except ImportError:
-            missing.append(pkg_name)
-    
-    if missing:
-        print("\n[*] Installing required packages...")
-        print("[*] This may take a moment...")
-        
-        for pkg in missing:
-            if not install_package(pkg):
-                print(f"[!] Failed to install {pkg}")
-                print("[*] Trying fallback method...")
-                try:
-                    subprocess.run([sys.executable, "-m", "pip", "install", pkg], check=True)
-                except:
-                    print(f"[!] Please manually install: pip install {pkg}")
-                    input("\nPress Enter after installing...")
-                    try:
-                        importlib.import_module(pkg.replace("-", "_"))
-                    except:
-                        pass
+            print(f"[*] Installing {pkg_name}...")
+            if not install_package(pkg_name):
+                print(f"[!] Failed to install {pkg_name}")
+                print(f"[*] Please run: pip install {pkg_name}")
+                input("Press Enter after installing...")
 
 ensure_dependencies()
 
@@ -96,7 +50,6 @@ import json
 import aiohttp
 from typing import Dict, List, Tuple, Optional
 import holehe
-from bs4 import BeautifulSoup
 
 TARGET_MODULES = [
     'facebook', 'tiktok', 'discord', 'spotify', 'snapchat',
@@ -109,11 +62,7 @@ class EmailTracker:
     def __init__(self, email: str):
         self.email = email
         self.results = {}
-        self.total_modules = len(TARGET_MODULES)
-        self.checked = 0
         self.found_accounts = []
-        self.rate_limited = []
-        self.errors = []
         self.country_info = self._get_country(email)
     
     def _get_country(self, email: str) -> Dict:
@@ -166,9 +115,6 @@ class EmailTracker:
             'mail.ru': {'country': 'Russia', 'code': 'RU'},
             'yandex.ru': {'country': 'Russia', 'code': 'RU'},
             'icloud.com': {'country': 'United States', 'code': 'US'},
-            'facebook.com': {'country': 'United States', 'code': 'US'},
-            'twitter.com': {'country': 'United States', 'code': 'US'},
-            'github.com': {'country': 'United States', 'code': 'US'},
         }
         
         if domain in specific:
@@ -176,7 +122,7 @@ class EmailTracker:
         
         return {'country': 'Unknown', 'code': 'XX'}
     
-    async def check_module(self, module_name: str) -> Tuple[str, bool, Dict]:
+    async def check_module(self, module_name: str) -> Tuple[str, bool]:
         try:
             module = getattr(holehe.modules, module_name)
             result = await module(self.email)
@@ -184,58 +130,47 @@ class EmailTracker:
             exists = False
             if isinstance(result, dict):
                 exists = result.get('rateLimit', False) or result.get('exists', False) or result.get('found', False)
+                if result.get('email', '').lower() == self.email.lower():
+                    exists = True
             
-            return (module_name, exists, result)
-        except Exception as e:
-            return (module_name, False, {"error": str(e)})
+            return (module_name, exists)
+        except:
+            return (module_name, False)
     
     async def scan_all(self) -> Dict:
         print(f"\n[*] Scanning: {self.email}")
         print(f"[*] Country: {self.country_info['country']}")
-        print(f"[*] Checking {self.total_modules} platforms...\n")
+        print(f"[*] Checking {len(TARGET_MODULES)} platforms...\n")
         
         tasks = [self.check_module(m) for m in TARGET_MODULES]
+        results = await asyncio.gather(*tasks)
         
-        for future in asyncio.as_completed(tasks):
-            module_name, exists, result = await future
-            self.checked += 1
-            
+        for module_name, exists in results:
             if exists:
                 self.found_accounts.append(module_name)
-            
-            if result.get('rateLimit', False):
-                self.rate_limited.append(module_name)
-            
-            if 'error' in result and result['error']:
-                self.errors.append((module_name, result['error']))
-            
-            self.results[module_name] = {"exists": exists, "data": result}
-            
-            status = "FOUND" if exists else "NOT FOUND"
-            print(f"  [{self.checked:02d}/{self.total_modules}] {module_name:12} {status}")
+            self.results[module_name] = exists
         
         return self.results
     
-    def print_summary(self):
+    def print_results(self):
         print("\n" + "="*60)
-        print(f"RESULTS FOR: {self.email}")
+        print(f"EMAIL: {self.email}")
         print("="*60)
-        print(f"Country: {self.country_info['country']}")
+        print(f"Country: {self.country_info['country']} ({self.country_info['code']})")
         print(f"Accounts found: {len(self.found_accounts)}")
         
         if self.found_accounts:
-            print("\nFOUND ACCOUNTS:")
+            print("\n[+] SOCIAL MEDIA ACCOUNTS:")
             for module in sorted(self.found_accounts):
-                print(f"  - {module}")
-        
-        if self.rate_limited:
-            print(f"\nRate Limited: {', '.join(self.rate_limited)}")
+                print(f"    - {module.capitalize()}")
+        else:
+            print("\n[-] No accounts found.")
         
         print("="*60 + "\n")
 
 async def main_async():
     print("\n" + "="*60)
-    print("EMAIL TRACKER")
+    print("EMAIL TRACKER - Social Media Lookup")
     print("="*60)
     print("Checks: Facebook, TikTok, Discord, Spotify, Snapchat,")
     print("GitHub, Instagram, Twitter, Reddit, Pinterest, Tumblr,")
@@ -253,17 +188,12 @@ async def main_async():
             print("Invalid email.\n")
             continue
         
-        confirm = input(f"Scan '{email}'? (y/n): ").strip().lower()
-        if confirm != 'y':
-            print("Cancelled.\n")
-            continue
-        
         start = time.time()
         tracker = EmailTracker(email)
         await tracker.scan_all()
         elapsed = time.time() - start
         
-        tracker.print_summary()
+        tracker.print_results()
         print(f"Completed in {elapsed:.2f} seconds.\n")
 
 def run():
